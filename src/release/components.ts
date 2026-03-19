@@ -13,6 +13,7 @@ const RELEASE_COMPONENTS: ReleaseComponent[] = [
   "compound-engineering",
   "coding-tutor",
   "marketplace",
+  "cursor-marketplace",
 ]
 
 const FILE_COMPONENT_MAP: Array<{ component: ReleaseComponent; prefixes: string[] }> = [
@@ -30,7 +31,11 @@ const FILE_COMPONENT_MAP: Array<{ component: ReleaseComponent; prefixes: string[
   },
   {
     component: "marketplace",
-    prefixes: [".claude-plugin/marketplace.json", ".cursor-plugin/marketplace.json"],
+    prefixes: [".claude-plugin/marketplace.json"],
+  },
+  {
+    component: "cursor-marketplace",
+    prefixes: [".cursor-plugin/marketplace.json"],
   },
 ]
 
@@ -40,6 +45,7 @@ const SCOPES_TO_COMPONENTS: Record<string, ReleaseComponent> = {
   "compound-engineering": "compound-engineering",
   "coding-tutor": "coding-tutor",
   marketplace: "marketplace",
+  "cursor-marketplace": "cursor-marketplace",
 }
 
 const NON_RELEASABLE_TYPES = new Set(["docs", "chore", "test", "ci", "build", "style"])
@@ -179,12 +185,14 @@ export async function loadCurrentVersions(cwd = process.cwd()): Promise<VersionS
   const ce = await readJson<PluginManifest>(`${cwd}/plugins/compound-engineering/.claude-plugin/plugin.json`)
   const codingTutor = await readJson<PluginManifest>(`${cwd}/plugins/coding-tutor/.claude-plugin/plugin.json`)
   const marketplace = await readJson<MarketplaceManifest>(`${cwd}/.claude-plugin/marketplace.json`)
+  const cursorMarketplace = await readJson<MarketplaceManifest>(`${cwd}/.cursor-plugin/marketplace.json`)
 
   return {
     cli: root.version,
     "compound-engineering": ce.version,
     "coding-tutor": codingTutor.version,
     marketplace: marketplace.metadata.version,
+    "cursor-marketplace": cursorMarketplace.metadata.version,
   }
 }
 

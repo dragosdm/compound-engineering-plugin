@@ -4,12 +4,23 @@ import { validateReleasePleaseConfig } from "../../src/release/config"
 import { getCompoundEngineeringCounts, syncReleaseMetadata } from "../../src/release/metadata"
 import { readJson } from "../../src/utils/files"
 
+type ReleasePleaseManifest = Record<string, string>
+
 const releasePleaseConfig = await readJson<{ packages: Record<string, unknown> }>(
   path.join(process.cwd(), ".github", "release-please-config.json"),
 )
+const manifest = await readJson<ReleasePleaseManifest>(
+  path.join(process.cwd(), ".github", ".release-please-manifest.json"),
+)
 const configErrors = validateReleasePleaseConfig(releasePleaseConfig)
 const counts = await getCompoundEngineeringCounts(process.cwd())
-const result = await syncReleaseMetadata({ write: false })
+const result = await syncReleaseMetadata({
+  write: false,
+  componentVersions: {
+    marketplace: manifest[".claude-plugin"],
+    "cursor-marketplace": manifest[".cursor-plugin"],
+  },
+})
 const changed = result.updates.filter((update) => update.changed)
 
 if (configErrors.length === 0 && changed.length === 0) {

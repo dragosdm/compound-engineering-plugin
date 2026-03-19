@@ -31,6 +31,12 @@ on:
         type: choice
         options: [auto, patch, minor, major]
         default: auto
+      cursor_marketplace_bump:
+        description: "cursor-marketplace bump override"
+        required: false
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
 
 jobs:
   preview:
@@ -86,6 +92,7 @@ jobs:
           args+=(--override "compound-engineering=${{ github.event.inputs.compound_engineering_bump || 'auto' }}")
           args+=(--override "coding-tutor=${{ github.event.inputs.coding_tutor_bump || 'auto' }}")
           args+=(--override "marketplace=${{ github.event.inputs.marketplace_bump || 'auto' }}")
+          args+=(--override "cursor-marketplace=${{ github.event.inputs.cursor_marketplace_bump || 'auto' }}")
 
           bun run scripts/release/preview.ts "${args[@]}" | tee /tmp/release-preview.txt
 

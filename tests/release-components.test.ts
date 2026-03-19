@@ -34,9 +34,18 @@ describe("release component detection", () => {
     ])
   })
 
-  test("maps marketplace metadata without bumping plugin components", () => {
+  test("maps claude marketplace metadata without bumping plugin components", () => {
     const components = detectComponentsFromFiles([".claude-plugin/marketplace.json"])
     expect(components.get("marketplace")).toEqual([".claude-plugin/marketplace.json"])
+    expect(components.get("cursor-marketplace")).toEqual([])
+    expect(components.get("compound-engineering")).toEqual([])
+    expect(components.get("coding-tutor")).toEqual([])
+  })
+
+  test("maps cursor marketplace metadata to cursor-marketplace component", () => {
+    const components = detectComponentsFromFiles([".cursor-plugin/marketplace.json"])
+    expect(components.get("cursor-marketplace")).toEqual([".cursor-plugin/marketplace.json"])
+    expect(components.get("marketplace")).toEqual([])
     expect(components.get("compound-engineering")).toEqual([])
     expect(components.get("coding-tutor")).toEqual([])
   })

@@ -57,6 +57,17 @@
           "jsonpath": "$.metadata.version"
         }
       ]
+    },
+    ".cursor-plugin": {
+      "release-type": "simple",
+      "package-name": "cursor-marketplace",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "marketplace.json",
+          "jsonpath": "$.metadata.version"
+        }
+      ]
     }
   }
 }

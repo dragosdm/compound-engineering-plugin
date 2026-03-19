@@ -39,6 +39,7 @@ async function makeFixtureRoot(): Promise<string> {
     recursive: true,
   })
   await mkdir(path.join(root, ".claude-plugin"), { recursive: true })
+  await mkdir(path.join(root, ".cursor-plugin"), { recursive: true })
 
   await writeFile(
     path.join(root, "plugins", "compound-engineering", "agents", "review", "agent.md"),
@@ -70,6 +71,20 @@ async function makeFixtureRoot(): Promise<string> {
   )
   await writeFile(
     path.join(root, ".claude-plugin", "marketplace.json"),
+    JSON.stringify(
+      {
+        metadata: { version: "1.0.0", description: "marketplace" },
+        plugins: [
+          { name: "compound-engineering", version: "2.41.0", description: "old" },
+          { name: "coding-tutor", version: "1.2.0", description: "old" },
+        ],
+      },
+      null,
+      2,
+    ),
+  )
+  await writeFile(
+    path.join(root, ".cursor-plugin", "marketplace.json"),
     JSON.stringify(
       {
         metadata: { version: "1.0.0", description: "marketplace" },
@@ -115,5 +130,6 @@ describe("release metadata", () => {
 
     expect(changedPaths).toContain(path.join(root, "plugins", "compound-engineering", ".cursor-plugin", "plugin.json"))
     expect(changedPaths).toContain(path.join(root, ".claude-plugin", "marketplace.json"))
+    expect(changedPaths).toContain(path.join(root, ".cursor-plugin", "marketplace.json"))
   })
 })

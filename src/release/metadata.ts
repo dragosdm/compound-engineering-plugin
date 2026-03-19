@@ -135,12 +135,14 @@ export async function syncReleaseMetadata(options: SyncOptions = {}): Promise<Me
   const codingTutorClaudePath = path.join(root, "plugins", "coding-tutor", ".claude-plugin", "plugin.json")
   const codingTutorCursorPath = path.join(root, "plugins", "coding-tutor", ".cursor-plugin", "plugin.json")
   const marketplaceClaudePath = path.join(root, ".claude-plugin", "marketplace.json")
+  const marketplaceCursorPath = path.join(root, ".cursor-plugin", "marketplace.json")
 
   const compoundClaude = await readJson<ClaudePluginManifest>(compoundClaudePath)
   const compoundCursor = await readJson<CursorPluginManifest>(compoundCursorPath)
   const codingTutorClaude = await readJson<ClaudePluginManifest>(codingTutorClaudePath)
   const codingTutorCursor = await readJson<CursorPluginManifest>(codingTutorCursorPath)
   const marketplaceClaude = await readJson<MarketplaceManifest>(marketplaceClaudePath)
+  const marketplaceCursor = await readJson<MarketplaceManifest>(marketplaceCursorPath)
   const expectedCompoundVersion = resolveExpectedVersion(
     versions["compound-engineering"],
     compoundClaude.version,
@@ -210,6 +212,24 @@ export async function syncReleaseMetadata(options: SyncOptions = {}): Promise<Me
 
   updates.push({ path: marketplaceClaudePath, changed })
   if (write && changed) await writeJson(marketplaceClaudePath, marketplaceClaude)
+
+  changed = false
+  if (versions["cursor-marketplace"] && marketplaceCursor.metadata.version !== versions["cursor-marketplace"]) {
+    marketplaceCursor.metadata.version = versions["cursor-marketplace"]
+    changed = true
+  }
+
+  for (const plugin of marketplaceCursor.plugins) {
+    if (plugin.name === "compound-engineering") {
+      if (plugin.description !== compoundMarketplaceDescription) {
+        plugin.description = compoundMarketplaceDescription
+        changed = true
+      }
+    }
+  }
+
+  updates.push({ path: marketplaceCursorPath, changed })
+  if (write && changed) await writeJson(marketplaceCursorPath, marketplaceCursor)
 
   return { updates }
 }
