@@ -16,9 +16,20 @@ Reviews code changes using dynamically selected reviewer personas. Spawns parall
 - Can be invoked standalone
 - Can run as a read-only or autofix review step inside larger workflows
 
-## Mode Detection
+## Argument Parsing
 
-Check `$ARGUMENTS` for `mode:autofix` or `mode:report-only`. If either token is present, strip it from the remaining arguments before interpreting the rest as the PR number, GitHub URL, or branch name.
+Parse `$ARGUMENTS` for the following optional tokens. Strip each recognized token before interpreting the remainder as the PR number, GitHub URL, or branch name.
+
+| Token | Example | Effect |
+|-------|---------|--------|
+| `mode:autofix` | `mode:autofix` | Select autofix mode (see Mode Detection below) |
+| `mode:report-only` | `mode:report-only` | Select report-only mode |
+| `base:<sha-or-ref>` | `base:abc1234` or `base:origin/main` | Skip scope detection — use this as the diff base directly |
+| `plan:<path>` | `plan:docs/plans/2026-03-25-001-feat-foo-plan.md` | Load this plan for requirements verification |
+
+All tokens are optional. Each one present means one less thing to infer. When absent, fall back to existing behavior for that stage.
+
+## Mode Detection
 
 | Mode | When | Behavior |
 |------|------|----------|
@@ -134,6 +145,23 @@ If a reviewer flags any file in these directories for cleanup or removal, discar
 
 Compute the diff range, file list, and diff. Minimize permission prompts by combining into as few commands as possible.
 
+**If `base:` argument is provided (fast path):**
+
+The caller already knows the diff base. Skip all base-branch detection, remote resolution, and merge-base computation. Use the provided value directly:
+
+```
+BASE_ARG="{base_arg}"
+BASE=$(git merge-base HEAD "$BASE_ARG" 2>/dev/null) || BASE="$BASE_ARG"
+```
+
+Then produce the same output as the other paths:
+
+```
+echo "BASE:$BASE" && echo "FILES:" && git diff --name-only $BASE && echo "DIFF:" && git diff -U10 $BASE && echo "UNTRACKED:" && git ls-files --others --exclude-standard
+```
+
+This path works with any ref — a SHA, `origin/main`, a branch name. Automated callers (ce:work, lfg, slfg) should prefer this to avoid the detection overhead. **Do not combine `base:` with a PR number or branch target.** If both are present, stop with an error: "Cannot use `base:` with a PR number or branch target — `base:` implies the current checkout is already the correct branch. Pass `base:` alone, or pass the target alone and let scope detection resolve the base." This avoids scope/intent mismatches where the diff base comes from one source but the code and metadata come from another.
+
 **If a PR number or GitHub URL is provided as an argument:**
 
 If `mode:report-only` is active, do **not** run `gh pr checkout <number-or-url>` on the shared checkout. Tell the caller: "mode:report-only cannot switch the shared checkout to review a PR target. Run it from an isolated worktree/checkout for that PR, or run report-only with no target argument on the already checked out branch." Stop here unless the review is already running in an isolated checkout.
@@ -204,95 +232,43 @@ If the output is non-empty, inform the user: "You have uncommitted changes on th
 git checkout <branch>
 ```
 
-Then detect the review base branch before computing the merge-base. When the branch has an open PR, resolve the base ref from the PR's actual base repository (not just `origin`), mirroring the PR-mode logic for fork safety. Fall back to `origin/HEAD`, GitHub metadata, then common branch names:
+Then detect the review base branch and compute the merge-base. Run the `references/resolve-base.sh` script, which handles fork-safe remote resolution with multi-fallback detection (PR metadata -> `origin/HEAD` -> `gh repo view` -> common branch names):
 
 ```
-REVIEW_BASE_BRANCH=""
-PR_BASE_REPO=""
-if command -v gh >/dev/null 2>&1; then
-  PR_META=$(gh pr view --json baseRefName,url 2>/dev/null || true)
-  if [ -n "$PR_META" ]; then
-    REVIEW_BASE_BRANCH=$(echo "$PR_META" | jq -r '.baseRefName // empty')
-    PR_BASE_REPO=$(echo "$PR_META" | jq -r '.url // empty' | sed -n 's#https://github.com/\([^/]*/[^/]*\)/pull/.*#\1#p')
-  fi
-fi
-if [ -z "$REVIEW_BASE_BRANCH" ]; then REVIEW_BASE_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); fi
-if [ -z "$REVIEW_BASE_BRANCH" ] && command -v gh >/dev/null 2>&1; then REVIEW_BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null); fi
-if [ -z "$REVIEW_BASE_BRANCH" ]; then
-  for candidate in main master develop trunk; do
-    if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1 || git rev-parse --verify "$candidate" >/dev/null 2>&1; then
-      REVIEW_BASE_BRANCH="$candidate"
-      break
-    fi
-  done
-fi
-if [ -n "$REVIEW_BASE_BRANCH" ]; then
-  if [ -n "$PR_BASE_REPO" ]; then
-    PR_BASE_REMOTE=$(git remote -v | awk "index(\$2, \"github.com:$PR_BASE_REPO\") || index(\$2, \"github.com/$PR_BASE_REPO\") {print \$1; exit}")
-    if [ -n "$PR_BASE_REMOTE" ]; then
-      git rev-parse --verify "$PR_BASE_REMOTE/$REVIEW_BASE_BRANCH" >/dev/null 2>&1 || git fetch --no-tags "$PR_BASE_REMOTE" "$REVIEW_BASE_BRANCH" 2>/dev/null || true
-      BASE_REF=$(git rev-parse --verify "$PR_BASE_REMOTE/$REVIEW_BASE_BRANCH" 2>/dev/null || true)
-    fi
-  fi
-  if [ -z "$BASE_REF" ]; then
-    git rev-parse --verify "origin/$REVIEW_BASE_BRANCH" >/dev/null 2>&1 || git fetch --no-tags origin "$REVIEW_BASE_BRANCH" 2>/dev/null || true
-    BASE_REF=$(git rev-parse --verify "origin/$REVIEW_BASE_BRANCH" 2>/dev/null || git rev-parse --verify "$REVIEW_BASE_BRANCH" 2>/dev/null || true)
-  fi
-  if [ -n "$BASE_REF" ]; then BASE=$(git merge-base HEAD "$BASE_REF" 2>/dev/null) || BASE=""; else BASE=""; fi
-else BASE=""; fi
+RESOLVE_OUT=$(bash references/resolve-base.sh) || { echo "ERROR: resolve-base.sh failed"; exit 1; }
+if [ -z "$RESOLVE_OUT" ] || echo "$RESOLVE_OUT" | grep -q '^ERROR:'; then echo "${RESOLVE_OUT:-ERROR: resolve-base.sh produced no output}"; exit 1; fi
+BASE=$(echo "$RESOLVE_OUT" | sed 's/^BASE://')
 ```
 
+If the script outputs an error, stop instead of falling back to `git diff HEAD`; a branch review without the base branch would only show uncommitted changes and silently miss all committed work.
+
+On success, produce the diff:
+
 ```
-if [ -n "$BASE" ]; then echo "BASE:$BASE" && echo "FILES:" && git diff --name-only $BASE && echo "DIFF:" && git diff -U10 $BASE && echo "UNTRACKED:" && git ls-files --others --exclude-standard; else echo "ERROR: Unable to resolve review base branch locally. Fetch the base branch and rerun, or provide a PR number so the review scope can be determined from PR metadata."; fi
+echo "BASE:$BASE" && echo "FILES:" && git diff --name-only $BASE && echo "DIFF:" && git diff -U10 $BASE && echo "UNTRACKED:" && git ls-files --others --exclude-standard
 ```
 
-If the branch has an open PR, the detection above uses the PR's base repository to resolve the merge-base, which handles fork workflows correctly. You may still fetch additional PR metadata with `gh pr view` for title, body, and linked issues, but do not fail if no PR exists. If the base branch still cannot be resolved after the detection and fetch attempts, stop instead of falling back to `git diff HEAD`; a branch review without the base branch would only show uncommitted changes and silently miss all committed work.
+You may still fetch additional PR metadata with `gh pr view` for title, body, and linked issues, but do not fail if no PR exists.
 
 **If no argument (standalone on current branch):**
 
-Detect the review base branch before computing the merge-base. When the current branch has an open PR, resolve the base ref from the PR's actual base repository (not just `origin`), mirroring the PR-mode logic for fork safety. Fall back to `origin/HEAD`, GitHub metadata, then common branch names:
+Detect the review base branch and compute the merge-base using the same `references/resolve-base.sh` script as branch mode:
 
 ```
-REVIEW_BASE_BRANCH=""
-PR_BASE_REPO=""
-if command -v gh >/dev/null 2>&1; then
-  PR_META=$(gh pr view --json baseRefName,url 2>/dev/null || true)
-  if [ -n "$PR_META" ]; then
-    REVIEW_BASE_BRANCH=$(echo "$PR_META" | jq -r '.baseRefName // empty')
-    PR_BASE_REPO=$(echo "$PR_META" | jq -r '.url // empty' | sed -n 's#https://github.com/\([^/]*/[^/]*\)/pull/.*#\1#p')
-  fi
-fi
-if [ -z "$REVIEW_BASE_BRANCH" ]; then REVIEW_BASE_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); fi
-if [ -z "$REVIEW_BASE_BRANCH" ] && command -v gh >/dev/null 2>&1; then REVIEW_BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null); fi
-if [ -z "$REVIEW_BASE_BRANCH" ]; then
-  for candidate in main master develop trunk; do
-    if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1 || git rev-parse --verify "$candidate" >/dev/null 2>&1; then
-      REVIEW_BASE_BRANCH="$candidate"
-      break
-    fi
-  done
-fi
-if [ -n "$REVIEW_BASE_BRANCH" ]; then
-  if [ -n "$PR_BASE_REPO" ]; then
-    PR_BASE_REMOTE=$(git remote -v | awk "index(\$2, \"github.com:$PR_BASE_REPO\") || index(\$2, \"github.com/$PR_BASE_REPO\") {print \$1; exit}")
-    if [ -n "$PR_BASE_REMOTE" ]; then
-      git rev-parse --verify "$PR_BASE_REMOTE/$REVIEW_BASE_BRANCH" >/dev/null 2>&1 || git fetch --no-tags "$PR_BASE_REMOTE" "$REVIEW_BASE_BRANCH" 2>/dev/null || true
-      BASE_REF=$(git rev-parse --verify "$PR_BASE_REMOTE/$REVIEW_BASE_BRANCH" 2>/dev/null || true)
-    fi
-  fi
-  if [ -z "$BASE_REF" ]; then
-    git rev-parse --verify "origin/$REVIEW_BASE_BRANCH" >/dev/null 2>&1 || git fetch --no-tags origin "$REVIEW_BASE_BRANCH" 2>/dev/null || true
-    BASE_REF=$(git rev-parse --verify "origin/$REVIEW_BASE_BRANCH" 2>/dev/null || git rev-parse --verify "$REVIEW_BASE_BRANCH" 2>/dev/null || true)
-  fi
-  if [ -n "$BASE_REF" ]; then BASE=$(git merge-base HEAD "$BASE_REF" 2>/dev/null) || BASE=""; else BASE=""; fi
-else BASE=""; fi
+RESOLVE_OUT=$(bash references/resolve-base.sh) || { echo "ERROR: resolve-base.sh failed"; exit 1; }
+if [ -z "$RESOLVE_OUT" ] || echo "$RESOLVE_OUT" | grep -q '^ERROR:'; then echo "${RESOLVE_OUT:-ERROR: resolve-base.sh produced no output}"; exit 1; fi
+BASE=$(echo "$RESOLVE_OUT" | sed 's/^BASE://')
 ```
 
+If the script outputs an error, stop instead of falling back to `git diff HEAD`; a standalone review without the base branch would only show uncommitted changes and silently miss all committed work on the branch.
+
+On success, produce the diff:
+
 ```
-if [ -n "$BASE" ]; then echo "BASE:$BASE" && echo "FILES:" && git diff --name-only $BASE && echo "DIFF:" && git diff -U10 $BASE && echo "UNTRACKED:" && git ls-files --others --exclude-standard; else echo "ERROR: Unable to resolve review base branch locally. Fetch the base branch and rerun, or provide a PR number so the review scope can be determined from PR metadata."; fi
+echo "BASE:$BASE" && echo "FILES:" && git diff --name-only $BASE && echo "DIFF:" && git diff -U10 $BASE && echo "UNTRACKED:" && git ls-files --others --exclude-standard
 ```
 
-Parse: `BASE:` = merge-base SHA, `FILES:` = file list, `DIFF:` = diff, `UNTRACKED:` = files excluded from review scope because they are not staged. Using `git diff $BASE` (without `..HEAD`) diffs the merge-base against the working tree, which includes committed, staged, and unstaged changes together. If the base branch cannot be resolved after the detection and fetch attempts, stop instead of falling back to `git diff HEAD`; a standalone review without the base branch would only show uncommitted changes and silently miss all committed work on the branch.
+Using `git diff $BASE` (without `..HEAD`) diffs the merge-base against the working tree, which includes committed, staged, and unstaged changes together.
 
 **Untracked file handling:** Always inspect the `UNTRACKED:` list, even when `FILES:`/`DIFF:` are non-empty. Untracked files are outside review scope until staged. If the list is non-empty, tell the user which files are excluded. If any of them should be reviewed, stop and tell the user to `git add` them first and rerun. Only continue when the user is intentionally reviewing tracked changes only.
 
@@ -310,7 +286,7 @@ Understand what the change is trying to accomplish. The source of intent depends
 echo "BRANCH:" && git rev-parse --abbrev-ref HEAD && echo "COMMITS:" && git log --oneline ${BASE}..HEAD
 ```
 
-Combined with conversation context (plan section summary, PR description, caller-provided description), write a 2-3 line intent summary:
+Combined with conversation context (plan section summary, PR description), write a 2-3 line intent summary:
 
 ```
 Intent: Simplify tax calculation by replacing the multi-tier rate lookup
@@ -323,6 +299,22 @@ Pass this to every reviewer in their spawn prompt. Intent shapes *how hard each 
 
 - **Interactive mode:** Ask one question using the platform's interactive question tool (AskUserQuestion in Claude Code, request_user_input in Codex): "What is the primary goal of these changes?" Do not spawn reviewers until intent is established.
 - **Autofix/report-only modes:** Infer intent conservatively from the branch name, diff, PR metadata, and caller context. Note the uncertainty in Coverage or Verdict reasoning instead of blocking.
+
+### Stage 2b: Plan discovery (requirements verification)
+
+Locate the plan document so Stage 6 can verify requirements completeness. Check these sources in priority order — stop at the first hit:
+
+1. **`plan:` argument.** If the caller passed a plan path, use it directly. Read the file to confirm it exists.
+2. **PR body.** If PR metadata was fetched in Stage 1, scan the body for paths matching `docs/plans/*.md`. If exactly one match is found and the file exists, use it as `plan_source: explicit`. If multiple plan paths appear, treat as ambiguous — demote to `plan_source: inferred` for the most recent match that exists on disk, or skip if none exist or none clearly relate to the PR title/intent. Always verify the selected file exists before using it — stale or copied plan links in PR descriptions are common.
+3. **Auto-discover.** Extract 2-3 keywords from the branch name (e.g., `feat/onboarding-skill` -> `onboarding`, `skill`). Glob `docs/plans/*` and filter filenames containing those keywords. If exactly one match, use it. If multiple matches or the match looks ambiguous (e.g., generic keywords like `review`, `fix`, `update` that could hit many plans), **skip auto-discovery** — a wrong plan is worse than no plan. If zero matches, skip.
+
+**Confidence tagging:** Record how the plan was found:
+- `plan:` argument -> `plan_source: explicit` (high confidence)
+- Single unambiguous PR body match -> `plan_source: explicit` (high confidence)
+- Multiple/ambiguous PR body matches -> `plan_source: inferred` (lower confidence)
+- Auto-discover with single unambiguous match -> `plan_source: inferred` (lower confidence)
+
+If a plan is found, read its **Requirements Trace** (R1, R2, etc.) and **Implementation Units** (checkbox items). Store the extracted requirements list and `plan_source` for Stage 6. Do not block the review if no plan is found — requirements verification is additive, not required.
 
 ### Stage 3: Select reviewers
 
@@ -412,15 +404,19 @@ Assemble the final report using the review output template included below:
 
 1. **Header.** Scope, intent, mode, reviewer team with per-conditional justifications.
 2. **Findings.** Grouped by severity (P0, P1, P2, P3). Each finding shows file, issue, reviewer(s), confidence, and synthesized route.
-3. **Applied Fixes.** Include only if a fix phase ran in this invocation.
-4. **Residual Actionable Work.** Include when unresolved actionable findings were handed off or should be handed off.
-5. **Pre-existing.** Separate section, does not count toward verdict.
-6. **Learnings & Past Solutions.** Surface learnings-researcher results: if past solutions are relevant, flag them as "Known Pattern" with links to docs/solutions/ files.
-7. **Agent-Native Gaps.** Surface agent-native-reviewer results. Omit section if no gaps found.
-8. **Schema Drift Check.** If schema-drift-detector ran, summarize whether drift was found. If drift exists, list the unrelated schema objects and the required cleanup command. If clean, say so briefly.
-9. **Deployment Notes.** If deployment-verification-agent ran, surface the key Go/No-Go items: blocking pre-deploy checks, the most important verification queries, rollback caveats, and monitoring focus areas. Keep the checklist actionable rather than dropping it into Coverage.
-10. **Coverage.** Suppressed count, residual risks, testing gaps, failed/timed-out reviewers, and any intent uncertainty carried by non-interactive modes.
-11. **Verdict.** Ready to merge / Ready with fixes / Not ready. Fix order if applicable.
+3. **Requirements Completeness.** Include only when a plan was found in Stage 2b. For each requirement (R1, R2, etc.) and implementation unit in the plan, report whether corresponding work appears in the diff. Use a simple checklist: met / not addressed / partially addressed. Routing depends on `plan_source`:
+   - **`explicit`** (caller-provided or PR body): Flag unaddressed requirements as P1 findings with `autofix_class: manual`, `owner: downstream-resolver`. These enter the residual actionable queue and can become todos.
+   - **`inferred`** (auto-discovered): Flag unaddressed requirements as P3 findings with `autofix_class: advisory`, `owner: human`. These stay in the report only — no todos, no autonomous follow-up. An inferred plan match is a hint, not a contract.
+   Omit this section entirely when no plan was found — do not mention the absence of a plan.
+4. **Applied Fixes.** Include only if a fix phase ran in this invocation.
+5. **Residual Actionable Work.** Include when unresolved actionable findings were handed off or should be handed off.
+6. **Pre-existing.** Separate section, does not count toward verdict.
+7. **Learnings & Past Solutions.** Surface learnings-researcher results: if past solutions are relevant, flag them as "Known Pattern" with links to docs/solutions/ files.
+8. **Agent-Native Gaps.** Surface agent-native-reviewer results. Omit section if no gaps found.
+9. **Schema Drift Check.** If schema-drift-detector ran, summarize whether drift was found. If drift exists, list the unrelated schema objects and the required cleanup command. If clean, say so briefly.
+10. **Deployment Notes.** If deployment-verification-agent ran, surface the key Go/No-Go items: blocking pre-deploy checks, the most important verification queries, rollback caveats, and monitoring focus areas. Keep the checklist actionable rather than dropping it into Coverage.
+11. **Coverage.** Suppressed count, residual risks, testing gaps, failed/timed-out reviewers, and any intent uncertainty carried by non-interactive modes.
+12. **Verdict.** Ready to merge / Ready with fixes / Not ready. Fix order if applicable. When an `explicit` plan has unaddressed requirements, the verdict must reflect it — a PR that's code-clean but missing planned requirements is "Not ready" unless the omission is intentional. When an `inferred` plan has unaddressed requirements, note it in the verdict reasoning but do not block on it alone.
 
 Do not include time estimates.
 

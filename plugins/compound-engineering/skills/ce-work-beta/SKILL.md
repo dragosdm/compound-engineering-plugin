@@ -246,7 +246,7 @@ This command takes a work document (plan, specification, or todo file) and execu
 
 2. **Consider Code Review** (Optional)
 
-   Use for complex, risky, or large changes. Load the `ce:review` skill with `mode:autofix` to fix safe issues and flag the rest before shipping.
+   Use for complex, risky, or large changes. Load the `ce:review` skill with `mode:autofix` to fix safe issues and flag the rest before shipping. When the plan file path is known, pass it as `plan:<path>`.
 
 3. **Final Validation**
    - All tasks marked completed
