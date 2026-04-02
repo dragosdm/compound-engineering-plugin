@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.62.0](https://github.com/dragosdm/compound-engineering-plugin/compare/cli-v2.61.0...cli-v2.62.0) (2026-04-02)
+
+
+### Features
+
+* **ce-plan:** reduce token usage by extracting conditional references ([#489](https://github.com/dragosdm/compound-engineering-plugin/issues/489)) ([fd562a0](https://github.com/dragosdm/compound-engineering-plugin/commit/fd562a0d0255d203d40fd53bb10d03a284a3c0e5))
+* **ce-review:** add headless mode for programmatic callers ([#430](https://github.com/dragosdm/compound-engineering-plugin/issues/430)) ([3706a97](https://github.com/dragosdm/compound-engineering-plugin/commit/3706a9764b6e73b7a155771956646ddef73f04a5))
+* **converters:** centralize model field normalization across targets ([#442](https://github.com/dragosdm/compound-engineering-plugin/issues/442)) ([f93d10c](https://github.com/dragosdm/compound-engineering-plugin/commit/f93d10cf60a61b13c7765198d69f7c4cfa268ed6))
+* **model:** add MiniMax provider prefix for cross-platform model normalization ([#463](https://github.com/dragosdm/compound-engineering-plugin/issues/463)) ([e372b43](https://github.com/dragosdm/compound-engineering-plugin/commit/e372b43d30378321ac815fe1ae101c1d5634d321))
+* **release:** document linked-versions policy ([#482](https://github.com/dragosdm/compound-engineering-plugin/issues/482)) ([96345ac](https://github.com/dragosdm/compound-engineering-plugin/commit/96345acf217333726af0dcfdaa24058a149365bb))
+* **review:** make review mandatory across pipeline skills ([#433](https://github.com/dragosdm/compound-engineering-plugin/issues/433)) ([9caaf07](https://github.com/dragosdm/compound-engineering-plugin/commit/9caaf071d9b74fd938567542167768f6cdb7a56f))
+* **skill-design:** document skill file isolation and platform variable constraints ([#469](https://github.com/dragosdm/compound-engineering-plugin/issues/469)) ([0294652](https://github.com/dragosdm/compound-engineering-plugin/commit/0294652395cb62d5569f73ebfea543cfe8b514d6))
+* **testing:** close the testing gap in ce:work, ce:plan, and testing-reviewer ([#438](https://github.com/dragosdm/compound-engineering-plugin/issues/438)) ([35678b8](https://github.com/dragosdm/compound-engineering-plugin/commit/35678b8add6a603cf9939564bcd2df6b83338c52))
+
+
+### Bug Fixes
+
+* **converters:** OpenCode subagent model and FQ agent name resolution ([#483](https://github.com/dragosdm/compound-engineering-plugin/issues/483)) ([577db53](https://github.com/dragosdm/compound-engineering-plugin/commit/577db53a2d2e237e900ef2079817cfe63df2d725))
+* **converters:** preserve user config when writing MCP servers ([#479](https://github.com/dragosdm/compound-engineering-plugin/issues/479)) ([c65a698](https://github.com/dragosdm/compound-engineering-plugin/commit/c65a698d932d02e5fb4a948db4d000e21ed6ba4f))
+* **mcp:** remove bundled context7 MCP server ([#486](https://github.com/dragosdm/compound-engineering-plugin/issues/486)) ([afdd9d4](https://github.com/dragosdm/compound-engineering-plugin/commit/afdd9d44651f834b1eed0b20e401ffbef5c8cd41))
+* **review:** harden ce-review base resolution ([#452](https://github.com/dragosdm/compound-engineering-plugin/issues/452)) ([638b38a](https://github.com/dragosdm/compound-engineering-plugin/commit/638b38abd267d415ad2d6b72eba3dfe12beefad9))
+
 ## [2.61.0](https://github.com/EveryInc/compound-engineering-plugin/compare/cli-v2.60.0...cli-v2.61.0) (2026-04-01)
 
 
