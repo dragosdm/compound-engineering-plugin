@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writeKiroBundle } from "../src/targets/kiro"
 import type { KiroBundle } from "../src/types/kiro"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -24,7 +26,7 @@ const emptyBundle: KiroBundle = {
 
 describe("writeKiroBundle", () => {
   test("writes agents, skills, steering, and mcp.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-test-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-test-"))
     const bundle: KiroBundle = {
       agents: [
         {
@@ -100,7 +102,7 @@ describe("writeKiroBundle", () => {
   })
 
   test("transforms Task calls in copied SKILL.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-skill-transform-"))
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -137,7 +139,7 @@ Run these research agents:
   })
 
   test("does not double-nest when output root is .kiro", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-home-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-home-"))
     const kiroRoot = path.join(tempRoot, ".kiro")
     const bundle: KiroBundle = {
       ...emptyBundle,
@@ -165,14 +167,14 @@ Run these research agents:
   })
 
   test("handles empty bundles gracefully", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-empty-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-empty-"))
 
     await writeKiroBundle(tempRoot, emptyBundle)
     expect(await exists(tempRoot)).toBe(true)
   })
 
   test("backs up existing mcp.json before overwrite", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-backup-"))
     const kiroRoot = path.join(tempRoot, ".kiro")
     const settingsDir = path.join(kiroRoot, "settings")
     await fs.mkdir(settingsDir, { recursive: true })
@@ -199,7 +201,7 @@ Run these research agents:
   })
 
   test("merges mcpServers into existing mcp.json without clobbering other keys", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-merge-"))
     const kiroRoot = path.join(tempRoot, ".kiro")
     const settingsDir = path.join(kiroRoot, "settings")
     await fs.mkdir(settingsDir, { recursive: true })
@@ -225,7 +227,7 @@ Run these research agents:
   })
 
   test("mcp.json fresh write when no existing file", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-fresh-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-fresh-"))
     const bundle: KiroBundle = {
       ...emptyBundle,
       mcpServers: { myServer: { command: "my-cmd", args: ["--flag"] } },
@@ -241,7 +243,7 @@ Run these research agents:
   })
 
   test("agent JSON files are valid JSON with expected fields", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-json-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-json-"))
     const bundle: KiroBundle = {
       ...emptyBundle,
       agents: [
@@ -274,7 +276,7 @@ Run these research agents:
   })
 
   test("path traversal attempt in skill name is rejected", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-traversal-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-traversal-"))
     const bundle: KiroBundle = {
       ...emptyBundle,
       generatedSkills: [
@@ -286,7 +288,7 @@ Run these research agents:
   })
 
   test("path traversal in agent name is rejected", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "kiro-traversal2-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "kiro-traversal2-"))
     const bundle: KiroBundle = {
       ...emptyBundle,
       agents: [

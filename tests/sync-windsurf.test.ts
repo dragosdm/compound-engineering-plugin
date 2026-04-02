@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 import { syncToWindsurf } from "../src/sync/windsurf"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToWindsurf", () => {
   test("writes stdio, http, and sse MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-windsurf-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-windsurf-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -54,7 +56,7 @@ describe("syncToWindsurf", () => {
   })
 
   test("merges existing config and overwrites same-named servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-windsurf-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-windsurf-merge-"))
     await fs.writeFile(
       path.join(tempRoot, "mcp_config.json"),
       JSON.stringify({

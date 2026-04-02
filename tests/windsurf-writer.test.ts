@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writeWindsurfBundle } from "../src/targets/windsurf"
 import type { WindsurfBundle } from "../src/types/windsurf"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -23,7 +25,7 @@ const emptyBundle: WindsurfBundle = {
 
 describe("writeWindsurfBundle", () => {
   test("creates correct directory structure with all components", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-test-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-test-"))
     const bundle: WindsurfBundle = {
       agentSkills: [
         {
@@ -86,7 +88,7 @@ describe("writeWindsurfBundle", () => {
   })
 
   test("transforms Task calls in copied SKILL.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-skill-transform-"))
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -123,7 +125,7 @@ Run these research agents:
   })
 
   test("writes directly into outputRoot without nesting", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-direct-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-direct-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       agentSkills: [
@@ -143,7 +145,7 @@ Run these research agents:
   })
 
   test("handles empty bundle gracefully", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-empty-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-empty-"))
 
     await writeWindsurfBundle(tempRoot, emptyBundle)
     expect(await exists(tempRoot)).toBe(true)
@@ -152,7 +154,7 @@ Run these research agents:
   })
 
   test("path traversal in agent skill name is rejected", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-traversal-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-traversal-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       agentSkills: [
@@ -164,7 +166,7 @@ Run these research agents:
   })
 
   test("path traversal in command workflow name is rejected", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-traversal2-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-traversal2-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       commandWorkflows: [
@@ -176,7 +178,7 @@ Run these research agents:
   })
 
   test("skill directory containment check prevents escape", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-skill-escape-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-skill-escape-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       skillDirs: [
@@ -188,7 +190,7 @@ Run these research agents:
   })
 
   test("agent skill files have YAML frontmatter with name and description", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-fm-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-fm-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       agentSkills: [
@@ -213,7 +215,7 @@ Run these research agents:
   // MCP config merge tests
 
   test("writes mcp_config.json to outputRoot", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-mcp-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       mcpConfig: {
@@ -233,7 +235,7 @@ Run these research agents:
   })
 
   test("merges with existing mcp_config.json preserving user servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-merge-"))
     const mcpPath = path.join(tempRoot, "mcp_config.json")
 
     // Write existing config with a user server
@@ -261,7 +263,7 @@ Run these research agents:
   })
 
   test("backs up existing mcp_config.json before overwrite", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-backup-"))
     const mcpPath = path.join(tempRoot, "mcp_config.json")
 
     await fs.writeFile(mcpPath, '{"mcpServers":{}}')
@@ -282,7 +284,7 @@ Run these research agents:
   })
 
   test("handles corrupted existing mcp_config.json with warning", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-corrupt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-corrupt-"))
     const mcpPath = path.join(tempRoot, "mcp_config.json")
 
     await fs.writeFile(mcpPath, "not valid json{{{")
@@ -307,7 +309,7 @@ Run these research agents:
   })
 
   test("handles existing mcp_config.json with array at root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-array-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-array-"))
     const mcpPath = path.join(tempRoot, "mcp_config.json")
 
     await fs.writeFile(mcpPath, "[1,2,3]")
@@ -328,7 +330,7 @@ Run these research agents:
   })
 
   test("preserves non-mcpServers keys in existing file", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-preserve-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-preserve-"))
     const mcpPath = path.join(tempRoot, "mcp_config.json")
 
     await fs.writeFile(mcpPath, JSON.stringify({
@@ -354,7 +356,7 @@ Run these research agents:
   })
 
   test("server name collision: plugin entry wins", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-collision-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-collision-"))
     const mcpPath = path.join(tempRoot, "mcp_config.json")
 
     await fs.writeFile(mcpPath, JSON.stringify({
@@ -375,7 +377,7 @@ Run these research agents:
   })
 
   test("mcp_config.json written with restrictive permissions", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "windsurf-perms-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "windsurf-perms-"))
     const bundle: WindsurfBundle = {
       ...emptyBundle,
       mcpConfig: {

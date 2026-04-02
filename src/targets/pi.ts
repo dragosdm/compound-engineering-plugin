@@ -3,25 +3,23 @@ import path from "path"
 import {
   assertPathWithinRoot,
   backupFile,
-  captureManagedPathSnapshot,
   captureTextFileSnapshot,
   ensureDir,
   ensureManagedDir,
-  ManagedPathSnapshot,
   removeFileIfExists,
   removeManagedPathIfExists,
   pathExists,
   readText,
-  restoreManagedPathSnapshot,
   restoreTextFileSnapshot,
   assertSafePathComponent,
   sanitizeSafePathName,
   writeTextIfChanged,
 } from "../utils/files"
+import { PiRollbackContext } from "../utils/pi-rollback"
 import { mergeJsonConfigAtKey } from "../sync/json-config"
 import { getPiPolicyFingerprint } from "../utils/pi-policy"
 import { copySkillDirForPi } from "../utils/pi-skills"
-import type { PiBundle } from "../types/pi"
+import type { PiBundle, PiSyncHooks } from "../types/pi"
 import { resolvePiLayout, samePiPath } from "../utils/pi-layout"
 import { derivePiSharedResourceContract } from "../utils/pi-trust-contract"
 import {
@@ -68,13 +66,9 @@ Compatibility notes:
 - Verified global or bundled Compound Engineering fallbacks may still exist; use ce_list_capabilities to inspect the actual callable runtime surface.
 `
 
-type PiManagedPublicationSnapshots = {
-  snapshotRoot: string | null
-  snapshots: Map<string, ManagedPathSnapshot>
-}
-
-export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promise<void> {
-  const policyFingerprint = getPiPolicyFingerprint()
+export async function writePiBundle(outputRoot: string, bundle: PiBundle, hooks?: PiSyncHooks): Promise<void> {
+  const ancestorCache = new Map<string, true>()
+  const policyFingerprint = getPiPolicyFingerprint(hooks?.policyFingerprintOverride)
   const paths = resolvePiLayout(outputRoot, "install")
   const prompts = bundle.prompts.map((prompt) => ({
     ...prompt,
@@ -106,10 +100,11 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
   const legacyLayout = !samePiPath(paths.root, outputRoot)
     ? resolvePiLayout(outputRoot, "sync")
     : null
-  const trustInfo = await getPiManagedTrustInfo(paths)
-  const legacyTrustInfo = legacyLayout ? await getPiManagedTrustInfo(legacyLayout) : null
+  const trustInfo = await getPiManagedTrustInfo(paths, hooks?.policyFingerprintOverride)
+  const legacyTrustInfo = legacyLayout ? await getPiManagedTrustInfo(legacyLayout, hooks?.policyFingerprintOverride) : null
   const previousState = trustInfo.state
-  const publicationSnapshots = await capturePiManagedPublicationSnapshots(paths)
+  await ensureManagedDir(paths.root)
+  const rollback = new PiRollbackContext({ ancestorCache })
 
   const installArtifacts = [
     ...prompts.map((prompt) =>
@@ -158,12 +153,12 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
     ? await planLegacyCustomRootInstallCleanup({ legacyLayout, legacyTrustInfo, artifactCandidates: legacyCustomRootCandidates })
     : null
   const removeTrackedFileIfExists = async (filePath: string): Promise<void> => {
-    await rememberPiManagedPublicationSnapshot(publicationSnapshots, filePath)
+    await rollback.capture(filePath)
     await removeFileIfExists(filePath)
   }
   const removeTrackedSkillDirectoryIfExists = async (dirPath: string): Promise<void> => {
-    await rememberPiManagedPublicationSnapshot(publicationSnapshots, dirPath)
-    await removeSkillDirectoryIfExists(dirPath)
+    await rollback.capture(dirPath)
+    await removeManagedPathIfExists(dirPath)
   }
   try {
     await ensureManagedDir(paths.skillsDir)
@@ -193,7 +188,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
       const nextContent = prompt.content + "\n"
       const existing = await readText(targetPath).catch(() => null)
       if (existing !== nextContent) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, targetPath)
+        await rollback.capture(targetPath)
       }
       await writeTextIfChanged(targetPath, nextContent, { existingContent: existing })
     }
@@ -210,17 +205,20 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
         skill.name,
         bundle.nameMaps,
         { trustedRoot: skill.sourceDir },
-        undefined,
+        {
+          preserveUnknownQualifiedRefs: true,
+          rejectUnknownQualifiedTaskRefs: true,
+          rejectUnresolvedFirstPartyQualifiedRefs: true,
+        },
         {
           onBeforeMutate: async (mode) => {
-            if (mode === "replace" || previousArtifact) {
-              await rememberPiManagedPublicationSnapshot(publicationSnapshots, targetDir)
-            }
+            await rollback.capture(targetDir)
             if (previousArtifact) {
-              await removeSkillDirectoryIfExists(targetDir)
+              await removeManagedPathIfExists(targetDir)
             }
           },
         },
+        ancestorCache,
       )
     }
 
@@ -231,14 +229,14 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
         ...(previousSkillArtifactsByName.get(`synced-skill:${skill.emittedName}`) ?? []),
       ][0]
       if (previousArtifact) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, targetDir)
-        await removeSkillDirectoryIfExists(targetDir)
+        await rollback.capture(targetDir)
+        await removeManagedPathIfExists(targetDir)
       }
       const targetPath = path.join(targetDir, "SKILL.md")
       const nextContent = skill.content + "\n"
       const existing = await readText(targetPath).catch(() => null)
       if (existing !== nextContent) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, targetDir)
+        await rollback.capture(targetDir)
       }
       await writeTextIfChanged(targetPath, nextContent, { existingContent: existing })
     }
@@ -248,7 +246,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
       const nextContent = extension.content + "\n"
       const existing = await readText(targetPath).catch(() => null)
       if (existing !== nextContent) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, targetPath)
+        await rollback.capture(targetPath)
       }
       await writeTextIfChanged(targetPath, nextContent, { existingContent: existing })
     }
@@ -266,7 +264,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
             console.log(`Backed up existing MCPorter config to ${backupPath}`)
           }
         }
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.mcporterConfigPath)
+        await rollback.capture(paths.mcporterConfigPath)
         await mergeJsonConfigAtKey({
           configPath: paths.mcporterConfigPath,
           key: "mcpServers",
@@ -276,7 +274,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
         })
       }
     } else if (canUseVerifiedCleanup(trustInfo, "install") && (previousState?.install.mcpServers.length ?? 0) > 0) {
-      await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.mcporterConfigPath)
+      await rollback.capture(paths.mcporterConfigPath)
       const result = await mergeJsonConfigAtKey({
         configPath: paths.mcporterConfigPath,
         key: "mcpServers",
@@ -297,7 +295,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
     })
     const keepCompatExtension = compatContract.retain
     if (!keepCompatExtension) {
-      await rememberPiManagedPublicationSnapshot(publicationSnapshots, compatPath)
+      await rollback.capture(compatPath)
       await removeFileIfExists(compatPath)
     }
 
@@ -306,7 +304,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
     const agentsBlock = buildPiAgentsBlock(shouldAdvertiseCompatTools)
     const nextAgents = agentsBefore === null ? agentsBlock + "\n" : upsertBlock(agentsBefore, agentsBlock)
     if (nextAgents !== agentsBefore) {
-      await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.agentsPath)
+      await rollback.capture(paths.agentsPath)
     }
     await ensurePiAgentsBlock(paths.agentsPath, shouldAdvertiseCompatTools)
 
@@ -332,7 +330,7 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
     }
 
     if (legacyLayout && legacyCleanupPlan && legacyCleanupPlan.pruneMcporterKeys.length > 0) {
-      await rememberPiManagedPublicationSnapshot(publicationSnapshots, legacyLayout.mcporterConfigPath)
+      await rollback.capture(legacyLayout.mcporterConfigPath)
       const result = await mergeJsonConfigAtKey({
         configPath: legacyLayout.mcporterConfigPath,
         key: "mcpServers",
@@ -346,64 +344,15 @@ export async function writePiBundle(outputRoot: string, bundle: PiBundle): Promi
       }
     }
 
-    if (shouldWritePiManagedState(nextState)) {
-      const didWriteManagedState = await writePiManagedState(paths, nextState, {
-        install: true,
-        sync: canUseVerifiedCleanup(trustInfo, "sync"),
-      })
-      if (didWriteManagedState) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.managedManifestPath)
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.verificationPath)
-      }
-    } else {
-      if (await pathExists(paths.managedManifestPath)) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.managedManifestPath)
-      }
-      if (await pathExists(paths.verificationPath)) {
-        await rememberPiManagedPublicationSnapshot(publicationSnapshots, paths.verificationPath)
-      }
-      await removeFileIfExists(paths.managedManifestPath)
-      await removeFileIfExists(paths.verificationPath)
-    }
+    await writePiManagedState(paths, nextState, {
+      install: true,
+      sync: canUseVerifiedCleanup(trustInfo, "sync"),
+    }, hooks?.policyFingerprintOverride)
   } catch (error) {
-    await restorePiManagedPublicationSnapshots(publicationSnapshots)
+    await rollback.restore()
     throw error
   }
-  if (publicationSnapshots.snapshotRoot) {
-    await fs.rm(publicationSnapshots.snapshotRoot, { recursive: true, force: true }).catch(() => undefined)
-  }
-}
-
-async function capturePiManagedPublicationSnapshots(
-  paths: ReturnType<typeof resolvePiLayout>,
-): Promise<PiManagedPublicationSnapshots> {
-  await ensureManagedDir(paths.root)
-  return { snapshotRoot: null, snapshots: new Map<string, ManagedPathSnapshot>() }
-}
-
-async function rememberPiManagedPublicationSnapshot(
-  rollback: PiManagedPublicationSnapshots,
-  targetPath: string,
-): Promise<void> {
-  if (rollback.snapshots.has(targetPath)) return
-  if (!rollback.snapshotRoot) {
-    await ensureManagedDir(path.dirname(targetPath))
-    rollback.snapshotRoot = await fs.mkdtemp(path.join(path.dirname(targetPath), ".pi-publish-rollback-"))
-  }
-  rollback.snapshots.set(targetPath, await captureManagedPathSnapshot(targetPath, rollback.snapshotRoot))
-}
-
-async function restorePiManagedPublicationSnapshots(rollback: PiManagedPublicationSnapshots): Promise<void> {
-  for (const snapshot of [...rollback.snapshots.values()].reverse()) {
-    await restoreManagedPathSnapshot(snapshot)
-  }
-  if (rollback.snapshotRoot) {
-    await fs.rm(rollback.snapshotRoot, { recursive: true, force: true }).catch(() => undefined)
-  }
-}
-
-async function removeSkillDirectoryIfExists(dirPath: string): Promise<void> {
-  await removeManagedPathIfExists(dirPath)
+  await rollback.cleanup()
 }
 
 async function inspectJsonObjectState(configPath: string): Promise<"missing" | "valid" | "invalid"> {

@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writeOpenCodeBundle } from "../src/targets/opencode"
 import { mergeJsonConfigAtKey } from "../src/sync/json-config"
 import type { OpenCodeBundle } from "../src/types/opencode"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -17,7 +19,7 @@ async function exists(filePath: string): Promise<boolean> {
 
 describe("writeOpenCodeBundle", () => {
   test("writes config, agents, plugins, and skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-test-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-test-"))
     const bundle: OpenCodeBundle = {
       config: { $schema: "https://opencode.ai/config.json" },
       agents: [{ name: "agent-one", content: "Agent content" }],
@@ -40,7 +42,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("writes directly into a .opencode output root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-root-"))
     const outputRoot = path.join(tempRoot, ".opencode")
     const bundle: OpenCodeBundle = {
       config: { $schema: "https://opencode.ai/config.json" },
@@ -65,7 +67,7 @@ describe("writeOpenCodeBundle", () => {
 
   test("writes directly into ~/.config/opencode style output root", async () => {
     // Simulates the global install path: ~/.config/opencode
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "config-opencode-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "config-opencode-"))
     const outputRoot = path.join(tempRoot, ".config", "opencode")
     const bundle: OpenCodeBundle = {
       config: { $schema: "https://opencode.ai/config.json" },
@@ -90,7 +92,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("merges plugin config into existing opencode.json without destroying user keys", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-backup-"))
     const outputRoot = path.join(tempRoot, ".opencode")
     const configPath = path.join(outputRoot, "opencode.json")
 
@@ -129,7 +131,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("merges mcp servers without overwriting user entry", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-merge-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-merge-mcp-"))
     const outputRoot = path.join(tempRoot, ".opencode")
     const configPath = path.join(outputRoot, "opencode.json")
 
@@ -167,7 +169,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("preserves unrelated user keys when merging opencode.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-preserve-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-preserve-"))
     const outputRoot = path.join(tempRoot, ".opencode")
     const configPath = path.join(outputRoot, "opencode.json")
 
@@ -204,7 +206,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("writes command files as .md in commands/ directory", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-cmd-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-cmd-"))
     const outputRoot = path.join(tempRoot, ".config", "opencode")
     const bundle: OpenCodeBundle = {
       config: { $schema: "https://opencode.ai/config.json" },
@@ -224,7 +226,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("rewrites FQ agent names in copied skill markdown (#477)", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-skill-transform-"))
     const skillSrcDir = path.join(tempRoot, "src-skill")
     const refsDir = path.join(skillSrcDir, "references")
     await fs.mkdir(refsDir, { recursive: true })
@@ -264,7 +266,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("does not transform non-markdown files in skill directories", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-skill-nonmd-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-skill-nonmd-"))
     const skillSrcDir = path.join(tempRoot, "src-skill")
     const scriptsDir = path.join(skillSrcDir, "scripts")
     await fs.mkdir(scriptsDir, { recursive: true })
@@ -295,7 +297,7 @@ describe("writeOpenCodeBundle", () => {
   })
 
   test("backs up existing command .md file before overwriting", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-cmd-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "opencode-cmd-backup-"))
     const outputRoot = path.join(tempRoot, ".opencode")
     const commandsDir = path.join(outputRoot, "commands")
     await fs.mkdir(commandsDir, { recursive: true })
@@ -329,7 +331,7 @@ describe("writeOpenCodeBundle", () => {
 
 describe("mergeJsonConfigAtKey", () => {
   test("incoming plugin entries overwrite same-named servers", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "json-merge-"))
+    const tempDir = await fs.mkdtemp(path.join(tmpdir, "json-merge-"))
     const configPath = path.join(tempDir, "opencode.json")
 
     // User has an existing MCP server config

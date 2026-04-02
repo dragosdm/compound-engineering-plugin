@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { syncToGemini } from "../src/sync/gemini"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToGemini", () => {
   test("symlinks skills and writes settings.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-gemini-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-gemini-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -44,7 +46,7 @@ describe("syncToGemini", () => {
   })
 
   test("merges existing settings.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-gemini-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-gemini-merge-"))
     const settingsPath = path.join(tempRoot, "settings.json")
 
     await fs.writeFile(
@@ -78,7 +80,7 @@ describe("syncToGemini", () => {
   })
 
   test("writes personal commands as Gemini TOML prompts", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-gemini-cmd-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-gemini-cmd-"))
 
     const config: ClaudeHomeConfig = {
       skills: [],
@@ -105,7 +107,7 @@ describe("syncToGemini", () => {
   })
 
   test("does not write settings.json when no MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-gemini-nomcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-gemini-nomcp-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -132,7 +134,7 @@ describe("syncToGemini", () => {
   })
 
   test("skips mirrored ~/.agents skills when syncing to ~/.gemini and removes stale duplicate symlinks", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "sync-gemini-home-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "sync-gemini-home-"))
     const geminiRoot = path.join(tempHome, ".gemini")
     const agentsSkillDir = path.join(tempHome, ".agents", "skills", "skill-one")
 

@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import { loadClaudeHome } from "../src/parsers/claude-home"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("loadClaudeHome", () => {
   test("loads personal skills, commands, and MCP servers", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-home-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "claude-home-"))
     const skillDir = path.join(tempHome, "skills", "reviewer")
     const commandsDir = path.join(tempHome, "commands")
 
@@ -45,7 +47,7 @@ describe("loadClaudeHome", () => {
   })
 
   test("keeps personal skill directory names stable even when frontmatter name differs", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-home-skill-name-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "claude-home-skill-name-"))
     const skillDir = path.join(tempHome, "skills", "reviewer")
 
     await fs.mkdir(skillDir, { recursive: true })
@@ -63,7 +65,7 @@ describe("loadClaudeHome", () => {
   })
 
   test("keeps personal skills when frontmatter is malformed", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-home-skill-yaml-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "claude-home-skill-yaml-"))
     const skillDir = path.join(tempHome, "skills", "reviewer")
 
     await fs.mkdir(skillDir, { recursive: true })
@@ -81,7 +83,7 @@ describe("loadClaudeHome", () => {
   })
 
   test("records personal skill entry dir, lexical trusted root, and canonical trusted boundary separately", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-home-symlink-root-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "claude-home-symlink-root-"))
     const actualSkillsRoot = path.join(tempHome, "actual-skills")
     const linkedSkillsRoot = path.join(tempHome, "skills")
     const externalSkillDir = path.join(tempHome, "external-skill")

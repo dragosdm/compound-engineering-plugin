@@ -3,10 +3,11 @@ import os from "os"
 import type { ClaudeHomeConfig } from "../parsers/claude-home"
 import type { ClaudeMcpServer } from "../types/claude"
 import { promises as fs } from "fs"
-import { captureManagedPathSnapshot, ensureDir, ensureManagedDir, pathExists, readJson, readText, removeFileIfExists, removeManagedPathIfExists, restoreManagedPathSnapshot, sanitizePathName, type ManagedPathSnapshot, writeTextIfChanged } from "../utils/files"
+import { ensureDir, ensureManagedDir, pathExists, readJson, readText, removeFileIfExists, removeManagedPathIfExists, sanitizePathName, writeTextIfChanged } from "../utils/files"
+import { PiRollbackContext } from "../utils/pi-rollback"
 import { buildPiSameRunQualifiedNameMap, normalizePiSkillName, uniquePiSkillName, type PiNameMaps } from "../utils/pi-skills"
 import { PI_COMPAT_EXTENSION_SOURCE } from "../templates/pi/compat-extension"
-import type { PiManagedArtifact } from "../types/pi"
+import type { PiManagedArtifact, PiSyncHooks } from "../types/pi"
 import { buildPiAgentsBlock, ensurePiAgentsBlock, upsertBlock } from "../targets/pi"
 import { syncPiCommands, type PiSyncArtifactStatus, type SyncPiCommandResult } from "./commands"
 import { mergeJsonConfigAtKey } from "./json-config"
@@ -50,35 +51,11 @@ type LegacySyncBootstrap = {
   warnings: string[]
 }
 
-type SyncPublicationSnapshots = {
-  snapshotRoot: string | null
-  snapshots: Map<string, ManagedPathSnapshot>
-}
-
 type ExistingJsonState = "missing" | "valid" | "invalid"
 
 type GlobalFallbackPolicy = {
   install: boolean
   sync: boolean
-}
-
-type PiSyncRerunMode = "narrow" | "full"
-
-type PiSyncPassHookPayload = {
-  passNumber: number
-  activeCommandNames: string[]
-  activeSkillNames: string[]
-}
-
-let piSyncRerunModeForTests: PiSyncRerunMode = "narrow"
-let piSyncPassHookForTests: ((payload: PiSyncPassHookPayload) => void | Promise<void>) | null = null
-
-export function setPiSyncRerunModeForTests(mode: PiSyncRerunMode | null): void {
-  piSyncRerunModeForTests = mode ?? "narrow"
-}
-
-export function setPiSyncPassHookForTests(hook: ((payload: PiSyncPassHookPayload) => void | Promise<void>) | null): void {
-  piSyncPassHookForTests = hook
 }
 
 function resolveUserHome(): string {
@@ -88,16 +65,17 @@ function resolveUserHome(): string {
 export async function syncToPi(
   config: ClaudeHomeConfig,
   outputRoot: string,
+  hooks?: PiSyncHooks,
 ): Promise<void> {
-  const policyFingerprint = getPiPolicyFingerprint()
+  const policyFingerprint = getPiPolicyFingerprint(hooks?.policyFingerprintOverride)
   const layout = resolvePiLayout(outputRoot, "sync")
-  const trustInfo = await getPiManagedTrustInfo(layout)
+  const trustInfo = await getPiManagedTrustInfo(layout, hooks?.policyFingerprintOverride)
   const previousState = trustInfo.state
   const syncCleanupVerified = canUseVerifiedCleanup(trustInfo, "sync")
-  const trustedLocalInstallNameMaps = await loadTrustedLocalInstallNameMaps(outputRoot, trustInfo)
-  const fallbackPolicy = await resolveGlobalFallbackPolicy(outputRoot)
-  const trustedGlobalInstallNameMaps = fallbackPolicy.install ? await loadTrustedGlobalInstallNameMaps(layout.root) : undefined
-  const trustedGlobalSyncNameMaps = fallbackPolicy.sync ? await loadTrustedGlobalSyncNameMaps(layout.root) : undefined
+  const trustedLocalInstallNameMaps = await loadTrustedLocalInstallNameMaps(outputRoot, trustInfo, hooks?.policyFingerprintOverride)
+  const fallbackPolicy = await resolveGlobalFallbackPolicy(outputRoot, hooks?.policyFingerprintOverride)
+  const trustedGlobalInstallNameMaps = fallbackPolicy.install ? await loadTrustedGlobalInstallNameMaps(layout.root, hooks?.policyFingerprintOverride) : undefined
+  const trustedGlobalSyncNameMaps = fallbackPolicy.sync ? await loadTrustedGlobalSyncNameMaps(layout.root, hooks?.policyFingerprintOverride) : undefined
   const reservedNames = getReservedPiTargetNames(previousState ? {
     ...previousState,
     install: canUseTrustedNameMaps(trustInfo, "install") ? previousState.install : createPiManagedSection(),
@@ -147,7 +125,9 @@ export async function syncToPi(
   const trustedInstallLayers = mergePiNameMaps(trustedGlobalInstallNameMaps, trustedLocalInstallNameMaps)
   const trustedBaseNameMaps = mergePiNameMaps(trustedInstallLayers, filterQualifiedPiNameMaps(trustedGlobalSyncNameMaps))
 
-  const publicationSnapshots = await captureSyncPublicationSnapshots(layout)
+  await ensureManagedDir(layout.root)
+  const ancestorCache = new Map<string, true>()
+  const rollback = new PiRollbackContext({ ancestorCache })
 
   const aggregatedSkillResults = new Map<string, SyncPiSkillResult>()
   const aggregatedPromptResults = new Map<string, SyncPiCommandResult>()
@@ -159,10 +139,14 @@ export async function syncToPi(
     let activePromptMap = promptMap
     let activeSkillMap = syncSkillMap
     let passNumber = 0
+    const maxPasses = (syncableSkills.length) + (commands.length) + 2
 
     while (true) {
       passNumber += 1
-      await piSyncPassHookForTests?.({
+      if (passNumber > maxPasses) {
+        throw new Error(`Pi sync convergence did not stabilize after ${passNumber - 1} passes — possible circular dependency among: ${activeSkills.map((s) => s.name).concat(activeCommands.map((c) => c.name)).join(", ")}`)
+      }
+      await hooks?.onPass?.({
         passNumber,
         activeCommandNames: activeCommands.map((command) => command.name),
         activeSkillNames: activeSkills.map((skill) => skill.name),
@@ -176,23 +160,32 @@ export async function syncToPi(
 
       const skillResults = await syncPiSkills(activeSkills, layout.skillsDir, activeSkillMap, skillNameMaps, {
         onBeforeMutate: async (_skillName, targetPath, mode) => {
-          if (mode === "incremental") return
-          await rememberSyncPublicationSnapshot(publicationSnapshots, targetPath)
+          await rollback.capture(targetPath)
         },
-      })
+      }, ancestorCache, hooks)
       const promptResults = await syncPiCommands(
         { ...config, commands: activeCommands },
         outputRoot,
         commandNameMaps,
         {
           onBeforeMutate: async (targetPath) => {
-            await rememberSyncPublicationSnapshot(publicationSnapshots, targetPath)
+            await rollback.capture(targetPath)
           },
         },
+        hooks,
       )
 
-      const stableSkillResults = stabilizeSameRunQualifiedDependencies(skillResults, activeSkillMap, activePromptMap)
-      const stablePromptResults = stabilizeSameRunQualifiedDependencies(promptResults, activeSkillMap, activePromptMap)
+      for (const artifact of promptResults.filter(isPublishedPromptResult).map((result) => result.artifact)) {
+        currentRunArtifacts.set(`${artifact.kind}:${artifact.relativePath}`, artifact)
+      }
+      for (const skill of skillResults.filter(isPublishedSkillResult)) {
+        const artifact = createManagedArtifact(layout, "synced-skill", skill.sourceName, skill.emittedName)
+        currentRunArtifacts.set(`${artifact.kind}:${artifact.relativePath}`, artifact)
+      }
+
+      const stableResults = stabilizeSameRunQualifiedDependencies(skillResults, promptResults, activeSkillMap, activePromptMap)
+      const stableSkillResults = stableResults.skills
+      const stablePromptResults = stableResults.prompts
 
       for (const result of stableSkillResults) {
         aggregatedSkillResults.set(result.sourceName, result)
@@ -238,7 +231,7 @@ export async function syncToPi(
 
       activePromptMap = nextActivePromptMap
       activeSkillMap = nextActiveSkillMap
-      if (piSyncRerunModeForTests === "full") {
+      if ((hooks?.rerunMode ?? "narrow") === "full") {
         activeCommands = activeCommands.filter((command) => Boolean(activePromptMap[command.name]))
         activeSkills = activeSkills.filter((skill) => Boolean(activeSkillMap[skill.name]))
         continue
@@ -248,7 +241,7 @@ export async function syncToPi(
       activeSkills = syncableSkills.filter((skill) => retryableSkillNames.has(skill.name) && Boolean(activeSkillMap[skill.name]))
     }
   } catch (error) {
-    await restoreSyncPublicationSnapshots(publicationSnapshots)
+    await rollback.restore()
     throw error
   }
   const skillResults = [...aggregatedSkillResults.values()]
@@ -310,11 +303,11 @@ export async function syncToPi(
     preserveUntrusted: legacyBootstrap.preserveCompatExtension,
   })
   const removeTrackedFileIfExists = async (filePath: string): Promise<void> => {
-    await rememberSyncPublicationSnapshot(publicationSnapshots, filePath)
+    await rollback.capture(filePath)
     await removeFileIfExists(filePath)
   }
   const removeTrackedSkillDirectoryIfExists = async (dirPath: string): Promise<void> => {
-    await rememberSyncPublicationSnapshot(publicationSnapshots, dirPath)
+    await rollback.capture(dirPath)
     await removePiManagedSkillDirectory(dirPath)
   }
 
@@ -355,7 +348,7 @@ export async function syncToPi(
         const nextCompat = PI_COMPAT_EXTENSION_SOURCE + "\n"
         try {
           if (existingCompat !== nextCompat) {
-            await rememberSyncPublicationSnapshot(publicationSnapshots, compatPath)
+            await rollback.capture(compatPath)
           }
           await writeTextIfChanged(compatPath, nextCompat, { existingContent: existingCompat })
         } catch (error) {
@@ -363,7 +356,7 @@ export async function syncToPi(
         }
       }
     } else {
-      await rememberSyncPublicationSnapshot(publicationSnapshots, path.join(layout.extensionsDir, PI_COMPAT_EXTENSION_NAME))
+      await rollback.capture(path.join(layout.extensionsDir, PI_COMPAT_EXTENSION_NAME))
       await removeFileIfExists(path.join(layout.extensionsDir, PI_COMPAT_EXTENSION_NAME))
     }
 
@@ -372,7 +365,7 @@ export async function syncToPi(
     const agentsBlock = buildPiAgentsBlock(shouldAdvertiseCompatTools)
     const nextAgents = agentsBefore === null ? agentsBlock + "\n" : upsertBlock(agentsBefore, agentsBlock)
     if (nextAgents !== agentsBefore) {
-      await rememberSyncPublicationSnapshot(publicationSnapshots, layout.agentsPath)
+      await rollback.capture(layout.agentsPath)
     }
     await ensurePiAgentsBlock(layout.agentsPath, shouldAdvertiseCompatTools)
 
@@ -381,7 +374,7 @@ export async function syncToPi(
       if (preserveUnverifiedMalformedMcporter) {
         console.warn(`Warning: found malformed legacy mcporter.json at ${layout.mcporterConfigPath}; leaving it untouched because sync ownership cannot be proven.`)
       } else {
-        await rememberSyncPublicationSnapshot(publicationSnapshots, layout.mcporterConfigPath)
+        await rollback.capture(layout.mcporterConfigPath)
         await mergeJsonConfigAtKey({
           configPath: layout.mcporterConfigPath,
           key: "mcpServers",
@@ -391,7 +384,7 @@ export async function syncToPi(
         })
       }
     } else if (syncCleanupVerified && (previousState?.sync.mcpServers.length ?? 0) > 0) {
-      await rememberSyncPublicationSnapshot(publicationSnapshots, layout.mcporterConfigPath)
+      await rollback.capture(layout.mcporterConfigPath)
       const result = await mergeJsonConfigAtKey({
         configPath: layout.mcporterConfigPath,
         key: "mcpServers",
@@ -421,46 +414,12 @@ export async function syncToPi(
     const didWriteManagedState = await writePiManagedState(layout, nextState, {
       install: canUseVerifiedCleanup(trustInfo, "install"),
       sync: true,
-    })
-    if (didWriteManagedState) {
-      await rememberSyncPublicationSnapshot(publicationSnapshots, layout.managedManifestPath)
-      await rememberSyncPublicationSnapshot(publicationSnapshots, layout.verificationPath)
-    }
+    }, hooks?.policyFingerprintOverride)
   } catch (error) {
-    await restoreSyncPublicationSnapshots(publicationSnapshots)
+    await rollback.restore()
     throw error
   }
-  if (publicationSnapshots.snapshotRoot) {
-    await fs.rm(publicationSnapshots.snapshotRoot, { recursive: true, force: true }).catch(() => undefined)
-  }
-}
-
-async function captureSyncPublicationSnapshots(
-  layout: ReturnType<typeof resolvePiLayout>,
-): Promise<SyncPublicationSnapshots> {
-  await ensureManagedDir(layout.root)
-  return { snapshotRoot: null, snapshots: new Map<string, ManagedPathSnapshot>() }
-}
-
-async function rememberSyncPublicationSnapshot(
-  rollback: SyncPublicationSnapshots,
-  targetPath: string,
-): Promise<void> {
-  if (rollback.snapshots.has(targetPath)) return
-  if (!rollback.snapshotRoot) {
-    await ensureManagedDir(path.dirname(targetPath))
-    rollback.snapshotRoot = await fs.mkdtemp(path.join(path.dirname(targetPath), ".pi-sync-rollback-"))
-  }
-  rollback.snapshots.set(targetPath, await captureManagedPathSnapshot(targetPath, rollback.snapshotRoot))
-}
-
-async function restoreSyncPublicationSnapshots(rollback: SyncPublicationSnapshots): Promise<void> {
-  for (const snapshot of [...rollback.snapshots.values()].reverse()) {
-    await restoreManagedPathSnapshot(snapshot)
-  }
-  if (rollback.snapshotRoot) {
-    await fs.rm(rollback.snapshotRoot, { recursive: true, force: true }).catch(() => undefined)
-  }
+  await rollback.cleanup()
 }
 
 async function inspectJsonObjectState(configPath: string): Promise<ExistingJsonState> {
@@ -484,14 +443,14 @@ function needsPiCompatExtension(config: ClaudeHomeConfig): boolean {
   return config.skills.length > 0 || (config.commands?.length ?? 0) > 0 || Object.keys(config.mcpServers).length > 0
 }
 
-async function resolveGlobalFallbackPolicy(currentRoot: string): Promise<GlobalFallbackPolicy> {
+async function resolveGlobalFallbackPolicy(currentRoot: string, policyFingerprintOverride?: string | null): Promise<GlobalFallbackPolicy> {
   return {
-    install: await shouldAllowGlobalFallbackForSection(currentRoot, "install"),
-    sync: await shouldAllowGlobalFallbackForSection(currentRoot, "sync"),
+    install: await shouldAllowGlobalFallbackForSection(currentRoot, "install", policyFingerprintOverride),
+    sync: await shouldAllowGlobalFallbackForSection(currentRoot, "sync", policyFingerprintOverride),
   }
 }
 
-async function shouldAllowGlobalFallbackForSection(currentRoot: string, sectionName: "install" | "sync"): Promise<boolean> {
+async function shouldAllowGlobalFallbackForSection(currentRoot: string, sectionName: "install" | "sync", policyFingerprintOverride?: string | null): Promise<boolean> {
   for (const candidateRoot of walkUpPaths(path.resolve(currentRoot))) {
     const directManifestPath = path.join(candidateRoot, "compound-engineering", "compound-engineering-managed.json")
     const nestedInstallManifestPath = path.join(candidateRoot, ".pi", "compound-engineering", "compound-engineering-managed.json")
@@ -503,8 +462,8 @@ async function shouldAllowGlobalFallbackForSection(currentRoot: string, sectionN
     }
 
     const candidates = await Promise.all([
-      hasDirectManifest ? getPiManagedTrustInfo(resolvePiLayout(candidateRoot, "sync")) : Promise.resolve(null),
-      hasNestedManifest ? getPiManagedTrustInfo(resolvePiLayout(candidateRoot, "install")) : Promise.resolve(null),
+      hasDirectManifest ? getPiManagedTrustInfo(resolvePiLayout(candidateRoot, "sync"), policyFingerprintOverride) : Promise.resolve(null),
+      hasNestedManifest ? getPiManagedTrustInfo(resolvePiLayout(candidateRoot, "install"), policyFingerprintOverride) : Promise.resolve(null),
     ])
 
     return !candidates.some((candidate) => hasPiManagedSectionData(candidate?.state?.[sectionName]))
@@ -606,37 +565,90 @@ function isPublishedSkillResult(result: SyncPiSkillResult): result is SyncPiSkil
   return result.status === "published"
 }
 
-function stabilizeSameRunQualifiedDependencies<T extends {
+function stabilizeSameRunQualifiedDependencies(
+  skillResults: SyncPiSkillResult[],
+  promptResults: SyncPiCommandResult[],
+  activeSkillMap: Record<string, string>,
+  activePromptMap: Record<string, string>,
+): {
+  skills: SyncPiSkillResult[]
+  prompts: SyncPiCommandResult[]
+} {
+  let stableSkills = skillResults
+  let stablePrompts = promptResults
+  const maxRounds = stableSkills.length + stablePrompts.length + 1
+  let round = 0
+
+  while (true) {
+    round += 1
+    if (round > maxRounds) {
+      throw new Error(`Pi sync same-run stabilization did not converge after ${round - 1} rounds`)
+    }
+    const publishedSkills = new Set(stableSkills.filter((result) => result.status === "published").map((result) => result.sourceName))
+    const publishedPrompts = new Set(stablePrompts.filter((result) => result.status === "published").map((result) => result.sourceName))
+    const skillStatuses = new Map(stableSkills.map((result) => [result.sourceName, result.status]))
+    const promptStatuses = new Map(stablePrompts.map((result) => [result.sourceName, result.status]))
+    const nextSkills = demoteBlockedSameRunDependencies(stableSkills, publishedSkills, publishedPrompts, activeSkillMap, activePromptMap, skillStatuses, promptStatuses)
+    const nextPrompts = demoteBlockedSameRunDependencies(stablePrompts, publishedSkills, publishedPrompts, activeSkillMap, activePromptMap, skillStatuses, promptStatuses)
+
+    if (sameResultStatuses(stableSkills, nextSkills) && sameResultStatuses(stablePrompts, nextPrompts)) {
+      return { skills: nextSkills, prompts: nextPrompts }
+    }
+
+    stableSkills = nextSkills
+    stablePrompts = nextPrompts
+  }
+}
+
+function demoteBlockedSameRunDependencies<T extends {
   sourceName: string
   status: PiSyncArtifactStatus
   warning?: string
   sameRunDependencies?: { skills: string[]; prompts: string[] }
 }>(
   results: T[],
+  publishedSkills: Set<string>,
+  publishedPrompts: Set<string>,
   activeSkillMap: Record<string, string>,
   activePromptMap: Record<string, string>,
+  skillStatuses: Map<string, PiSyncArtifactStatus>,
+  promptStatuses: Map<string, PiSyncArtifactStatus>,
 ): T[] {
-  const publishedSkills = new Set(results.filter((result) => result.status === "published").map((result) => result.sourceName))
-  const publishedPrompts = new Set(results.filter((result) => result.status === "published").map((result) => result.sourceName))
-
   return results.map((result) => {
     if (result.status !== "published") return result
 
-    const blockedSkillDependency = (result.sameRunDependencies?.skills ?? []).some((dependency) =>
-      Boolean(activeSkillMap[dependency]) && !publishedSkills.has(dependency))
-    const blockedPromptDependency = (result.sameRunDependencies?.prompts ?? []).some((dependency) =>
-      Boolean(activePromptMap[dependency]) && !publishedPrompts.has(dependency))
+    const blockedSkillStatuses = (result.sameRunDependencies?.skills ?? [])
+      .filter((dependency) => Boolean(activeSkillMap[dependency]) && !publishedSkills.has(dependency))
+      .map((dependency) => skillStatuses.get(dependency) ?? "retryable")
+    const blockedPromptStatuses = (result.sameRunDependencies?.prompts ?? [])
+      .filter((dependency) => Boolean(activePromptMap[dependency]) && !publishedPrompts.has(dependency))
+      .map((dependency) => promptStatuses.get(dependency) ?? "retryable")
+    const blockedStatuses = [...blockedSkillStatuses, ...blockedPromptStatuses]
 
-    if (!blockedSkillDependency && !blockedPromptDependency) {
+    if (blockedStatuses.length === 0) {
       return result
     }
 
+    const nextStatus = blockedStatuses.some((status) => status === "blocked-by-policy")
+      ? "blocked-by-policy"
+      : blockedStatuses.some((status) => status === "unsupported-final")
+        ? "unsupported-final"
+        : "retryable"
+
     return {
       ...result,
-      status: "retryable",
+      status: nextStatus,
       warning: undefined,
     }
   })
+}
+
+function sameResultStatuses<T extends { sourceName: string; emittedName: string; status: PiSyncArtifactStatus }>(left: T[], right: T[]): boolean {
+  if (left.length !== right.length) return false
+
+  const leftStatuses = left.map((result) => `${result.sourceName}:${result.emittedName}:${result.status}`).sort()
+  const rightStatuses = right.map((result) => `${result.sourceName}:${result.emittedName}:${result.status}`).sort()
+  return JSON.stringify(leftStatuses) === JSON.stringify(rightStatuses)
 }
 
 async function collectLegacySkillDirectoryCandidates(
@@ -688,13 +700,13 @@ function filterQualifiedPiNameMaps(nameMaps?: PiNameMaps): PiNameMaps | undefine
   }
 }
 
-async function loadTrustedGlobalSyncNameMaps(currentRoot: string): Promise<PiNameMaps | undefined> {
+async function loadTrustedGlobalSyncNameMaps(currentRoot: string, policyFingerprintOverride?: string | null): Promise<PiNameMaps | undefined> {
   const globalRoot = path.join(resolveUserHome(), ".pi", "agent")
   if (path.resolve(globalRoot) === path.resolve(currentRoot)) {
     return undefined
   }
 
-  const globalTrust = await getPiManagedTrustInfo(resolvePiLayout(globalRoot, "sync"))
+  const globalTrust = await getPiManagedTrustInfo(resolvePiLayout(globalRoot, "sync"), policyFingerprintOverride)
   if (!canUseTrustedNameMaps(globalTrust, "sync")) {
     return undefined
   }
@@ -705,13 +717,14 @@ async function loadTrustedGlobalSyncNameMaps(currentRoot: string): Promise<PiNam
 async function loadTrustedLocalInstallNameMaps(
   currentRoot: string,
   currentTrust: Awaited<ReturnType<typeof getPiManagedTrustInfo>>,
+  policyFingerprintOverride?: string | null,
 ): Promise<PiNameMaps | undefined> {
   const nestedInstallLayout = resolvePiLayout(currentRoot, "install")
   if (!path.resolve(nestedInstallLayout.root).startsWith(path.resolve(currentRoot))) {
     return canUseTrustedNameMaps(currentTrust, "install") ? currentTrust.state?.install.nameMaps : undefined
   }
 
-  const nestedTrust = await getPiManagedTrustInfo(nestedInstallLayout)
+  const nestedTrust = await getPiManagedTrustInfo(nestedInstallLayout, policyFingerprintOverride)
   if (canUseTrustedNameMaps(nestedTrust, "install")) {
     return nestedTrust.state?.install.nameMaps
   }
@@ -719,13 +732,13 @@ async function loadTrustedLocalInstallNameMaps(
   return canUseTrustedNameMaps(currentTrust, "install") ? currentTrust.state?.install.nameMaps : undefined
 }
 
-async function loadTrustedGlobalInstallNameMaps(currentRoot: string): Promise<PiNameMaps | undefined> {
+async function loadTrustedGlobalInstallNameMaps(currentRoot: string, policyFingerprintOverride?: string | null): Promise<PiNameMaps | undefined> {
   const globalRoot = path.join(resolveUserHome(), ".pi", "agent")
   if (path.resolve(globalRoot) === path.resolve(currentRoot)) {
     return undefined
   }
 
-  const globalTrust = await getPiManagedTrustInfo(resolvePiLayout(globalRoot, "install"))
+  const globalTrust = await getPiManagedTrustInfo(resolvePiLayout(globalRoot, "install"), policyFingerprintOverride)
   if (!canUseTrustedNameMaps(globalTrust, "install")) {
     return undefined
   }

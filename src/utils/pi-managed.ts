@@ -10,9 +10,9 @@ import type {
   PiManagedSection,
   PiManagedVerificationRecord,
   PiManagedVerificationStatus,
+  PiNameMaps,
 } from "../types/pi"
 import { captureTextFileSnapshot, ensureDir, isSafePathComponent, pathExists, readJson, readText, removeFileIfExists, restoreTextFileSnapshot, sanitizePathName, writeJsonIfChanged } from "./files"
-import type { PiNameMaps } from "./pi-skills"
 import { normalizePiSkillName } from "./pi-skills"
 import type { PiLayout } from "./pi-layout"
 import { canonicalizePiPath, isPathWithinRoot } from "./pi-layout"
@@ -100,7 +100,7 @@ export async function loadPiManagedState(layout: PiLayout): Promise<PiManagedSta
   return trusted.state
 }
 
-export async function loadPiManagedStateWithTrust(layout: PiLayout): Promise<PiManagedStateWithTrust> {
+export async function loadPiManagedStateWithTrust(layout: PiLayout, policyFingerprintOverride?: string | null): Promise<PiManagedStateWithTrust> {
   if (!(await pathExists(layout.managedManifestPath))) {
     return { status: "missing", state: null, verifiedSections: { install: false, sync: false } }
   }
@@ -147,7 +147,7 @@ export async function loadPiManagedStateWithTrust(layout: PiLayout): Promise<PiM
     return { status: "stale", state, verifiedSections: { install: false, sync: false } }
   }
 
-  const currentPolicyFingerprint = getPiPolicyFingerprint()
+  const currentPolicyFingerprint = getPiPolicyFingerprint(policyFingerprintOverride)
   if (state.policyFingerprint !== currentPolicyFingerprint || verification.policyFingerprint !== currentPolicyFingerprint) {
     return { status: "stale", state, verifiedSections: { install: false, sync: false } }
   }
@@ -177,10 +177,11 @@ export async function writePiManagedState(
   layout: PiLayout,
   state: PiManagedState,
   verifiedSections: Partial<Record<PiManagedSectionName, boolean>> = { install: true, sync: true },
+  policyFingerprintOverride?: string | null,
 ): Promise<boolean> {
   const effectiveState = state.policyFingerprint
     ? state
-    : { ...state, policyFingerprint: getPiPolicyFingerprint() }
+    : { ...state, policyFingerprint: getPiPolicyFingerprint(policyFingerprintOverride) }
   if (!shouldWritePiManagedState(state)) {
     const [existingManifest, existingVerification] = await Promise.all([
       readText(layout.managedManifestPath).catch(() => null),
@@ -509,8 +510,8 @@ export async function planLegacyCustomRootInstallCleanup(options: {
   }
 }
 
-export async function getPiManagedTrustInfo(layout: PiLayout): Promise<PiManagedTrustInfo> {
-  const trusted = await loadPiManagedStateWithTrust(layout)
+export async function getPiManagedTrustInfo(layout: PiLayout, policyFingerprintOverride?: string | null): Promise<PiManagedTrustInfo> {
+  const trusted = await loadPiManagedStateWithTrust(layout, policyFingerprintOverride)
   return {
     status: trusted.status,
     state: trusted.state,

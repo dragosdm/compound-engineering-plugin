@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 import { syncToOpenClaw } from "../src/sync/openclaw"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToOpenClaw", () => {
   test("symlinks skills and warns instead of writing unvalidated MCP config", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-openclaw-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-openclaw-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
     const warnings: string[] = []
     const originalWarn = console.warn

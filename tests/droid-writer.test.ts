@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writeDroidBundle } from "../src/targets/droid"
 import type { DroidBundle } from "../src/types/droid"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -16,7 +18,7 @@ async function exists(filePath: string): Promise<boolean> {
 
 describe("writeDroidBundle", () => {
   test("writes commands, droids, and skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "droid-test-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "droid-test-"))
     const bundle: DroidBundle = {
       commands: [{ name: "plan", content: "Plan command content" }],
       droids: [{ name: "security-reviewer", content: "Droid content" }],
@@ -48,7 +50,7 @@ describe("writeDroidBundle", () => {
   })
 
   test("transforms Task calls in copied SKILL.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "droid-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "droid-skill-transform-"))
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -86,7 +88,7 @@ Run these research agents:
   })
 
   test("writes directly into a .factory output root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "droid-home-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "droid-home-"))
     const factoryRoot = path.join(tempRoot, ".factory")
     const bundle: DroidBundle = {
       commands: [{ name: "plan", content: "Plan content" }],
@@ -103,7 +105,7 @@ Run these research agents:
   })
 
   test("handles empty bundles gracefully", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "droid-empty-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "droid-empty-"))
     const bundle: DroidBundle = {
       commands: [],
       droids: [],
@@ -117,7 +119,7 @@ Run these research agents:
   })
 
   test("writes multiple commands as separate files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "droid-multi-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "droid-multi-"))
     const factoryRoot = path.join(tempRoot, ".factory")
     const bundle: DroidBundle = {
       commands: [

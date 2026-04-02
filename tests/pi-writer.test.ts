@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writePiBundle } from "../src/targets/pi"
 import type { PiBundle } from "../src/types/pi"
 import { resolvePiLayout } from "../src/utils/pi-layout"
 import { setAtomicWriteFailureHookForTests, setManagedPathSnapshotHookForTests } from "../src/utils/files"
-import { getPiPolicyFingerprint, setPiPolicyFingerprintForTests } from "../src/utils/pi-policy"
+import { getPiPolicyFingerprint } from "../src/utils/pi-policy"
 import {
   createManagedArtifact,
   createPiManagedSection,
@@ -15,6 +15,8 @@ import {
   replacePiManagedSection,
   writePiManagedState,
 } from "../src/utils/pi-managed"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -28,12 +30,11 @@ async function exists(filePath: string): Promise<boolean> {
 afterEach(() => {
   setAtomicWriteFailureHookForTests(null)
   setManagedPathSnapshotHookForTests(null)
-  setPiPolicyFingerprintForTests(null)
 })
 
 describe("writePiBundle", () => {
   test("classifies freshly written install manifests as verified for their canonical root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-verified-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-verified-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -57,7 +58,7 @@ describe("writePiBundle", () => {
   })
 
   test("persists the current Pi policy fingerprint in install managed state", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-policy-fingerprint-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-policy-fingerprint-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -76,22 +77,20 @@ describe("writePiBundle", () => {
   })
 
   test("treats install managed state as stale when the policy fingerprint changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-policy-fingerprint-stale-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-policy-fingerprint-stale-"))
     const stateHome = path.join(tempRoot, "state-home")
     const outputRoot = path.join(tempRoot, ".pi")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
-    setPiPolicyFingerprintForTests("policy-v1")
     await writePiBundle(outputRoot, {
       pluginName: "compound-engineering",
       prompts: [{ name: "plan-review", content: "Body" }],
       skillDirs: [],
       generatedSkills: [],
       extensions: [],
-    })
+    }, { policyFingerprintOverride: "policy-v1" })
 
-    setPiPolicyFingerprintForTests("policy-v2")
-    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(outputRoot, "install"))
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(outputRoot, "install"), "policy-v2")
     expect(trust.status).toBe("stale")
     expect(trust.verifiedSections.install).toBe(false)
 
@@ -99,7 +98,7 @@ describe("writePiBundle", () => {
   })
 
   test("treats only explicit Pi roots as direct install roots", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-layout-roots-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-layout-roots-"))
     const previousHome = process.env.HOME
     try {
       process.env.HOME = tempRoot
@@ -116,7 +115,7 @@ describe("writePiBundle", () => {
   })
 
   test("writes custom install roots named agent under the nested .pi layout", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-agent-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-agent-root-"))
     const outputRoot = path.join(tempRoot, "agent")
 
     await writePiBundle(outputRoot, {
@@ -132,7 +131,7 @@ describe("writePiBundle", () => {
   })
 
   test("treats malformed machine-key state as unverified", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-machine-key-invalid-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-machine-key-invalid-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -155,7 +154,7 @@ describe("writePiBundle", () => {
   })
 
   test("concurrent machine-key initialization keeps both newly written manifests verified", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-machine-key-race-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-machine-key-race-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -182,7 +181,7 @@ describe("writePiBundle", () => {
   })
 
   test("treats copied managed manifests as stale when the canonical root changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-stale-copy-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-stale-copy-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -210,7 +209,7 @@ describe("writePiBundle", () => {
   })
 
   test("writes prompts, skills, extensions, mcporter config, and AGENTS.md block", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-"))
     const outputRoot = path.join(tempRoot, ".pi")
 
     const bundle: PiBundle = {
@@ -247,7 +246,7 @@ describe("writePiBundle", () => {
   })
 
   test("rejects unsafe bundle names before mutating Pi roots", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-unsafe-name-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-unsafe-name-"))
     const outputRoot = path.join(tempRoot, ".pi")
 
     await expect(writePiBundle(outputRoot, {
@@ -263,7 +262,7 @@ describe("writePiBundle", () => {
   })
 
   test("transforms Task calls in copied SKILL.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-transform-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
@@ -304,7 +303,7 @@ Run these research agents:
   })
 
   test("writes to explicit ~/.pi/agent roots without nesting under .pi", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-agent-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-agent-root-"))
     const previousHome = process.env.HOME
     try {
       process.env.HOME = tempRoot
@@ -327,7 +326,7 @@ Run these research agents:
   })
 
   test("writes custom install roots under nested .pi layout", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-"))
     const outputRoot = path.join(tempRoot, "custom-root")
 
     await writePiBundle(outputRoot, {
@@ -342,7 +341,7 @@ Run these research agents:
   })
 
   test("canonicalizes trailing separators on explicit direct Pi roots", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-direct-root-trailing-slash-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-direct-root-trailing-slash-"))
     const outputRoot = path.join(tempRoot, ".pi") + path.sep
 
     expect(resolvePiLayout(outputRoot, "install").root).toBe(path.join(tempRoot, ".pi"))
@@ -360,7 +359,7 @@ Run these research agents:
   })
 
   test("cleans legacy flat custom-root prompts after writing the canonical nested layout", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-legacy-prompt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-legacy-prompt-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const outputRoot = path.join(tempRoot, "custom-root")
@@ -391,7 +390,7 @@ Run these research agents:
   })
 
   test("preserves direct-root sync prompts by avoiding legacy install cleanup for sync-owned paths", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-sync-prompt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-sync-prompt-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const outputRoot = path.join(tempRoot, "custom-root")
@@ -431,7 +430,7 @@ Run these research agents:
   })
 
   test("preserves legacy direct-root prompts when install ownership cannot be proven", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-unverified-install-prompt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-unverified-install-prompt-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const outputRoot = path.join(tempRoot, "custom-root")
@@ -460,7 +459,7 @@ Run these research agents:
   })
 
   test("removes verified legacy direct-root compat extension for custom-root installs when sync has no claim", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-legacy-compat-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-legacy-compat-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const outputRoot = path.join(tempRoot, "custom-root")
@@ -491,7 +490,7 @@ Run these research agents:
   })
 
   test("prunes only verified legacy install-owned direct-root mcporter keys for custom-root installs", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-legacy-mcporter-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-legacy-mcporter-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const outputRoot = path.join(tempRoot, "custom-root")
@@ -542,7 +541,7 @@ Run these research agents:
   })
 
   test("warns and preserves legacy direct-root compat state when sync trust is unavailable", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-custom-root-legacy-compat-ambiguous-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-custom-root-legacy-compat-ambiguous-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const outputRoot = path.join(tempRoot, "custom-root")
@@ -586,7 +585,7 @@ Run these research agents:
   })
 
   test("rewrites copied skill frontmatter names to match Pi-safe directory names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-frontmatter-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-frontmatter-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -626,7 +625,7 @@ Run these research agents:
   })
 
   test("uses provided name maps when rewriting copied skills under collisions", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-namemaps-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-namemaps-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -663,7 +662,7 @@ Run these research agents:
   })
 
   test("rewrites frontmatterless copied skills during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-frontmatterless-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-frontmatterless-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -692,7 +691,7 @@ Run these research agents:
   })
 
   test("does not rematerialize an already-converged frontmatterless skill during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-frontmatterless-stable-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-frontmatterless-stable-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -725,7 +724,7 @@ Run these research agents:
   })
 
   test("regenerates valid frontmatter for malformed copied skills during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-malformed-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-malformed-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -760,7 +759,7 @@ Run these research agents:
   })
 
   test("does not rematerialize an already-converged malformed skill during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-malformed-stable-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-malformed-stable-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -798,7 +797,7 @@ Run these research agents:
   })
 
   test("does not append MCPorter compatibility note to copied skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-no-mcporter-note-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-no-mcporter-note-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -833,7 +832,7 @@ Run these research agents:
   })
 
   test("skips dangling symlinked file assets during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-dangling-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-dangling-symlink-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     const missingAssetPath = path.join(tempRoot, "missing.txt")
@@ -875,7 +874,7 @@ Run these research agents:
   })
 
   test("preserves nested frontmatter objects when rewriting copied Pi skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-nested-frontmatter-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-nested-frontmatter-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -919,7 +918,7 @@ Run these research agents:
   })
 
   test("copies symlinked file assets when Pi skill materialization is required", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-symlink-asset-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-symlink-asset-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     const sharedAssetPath = path.join(sourceSkillDir, "shared.txt")
@@ -953,7 +952,7 @@ Run these research agents:
   })
 
   test("skips symlinked file assets that escape the skill root during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-escaped-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-escaped-symlink-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     const externalAssetDir = path.join(tempRoot, "shared")
@@ -988,7 +987,7 @@ Run these research agents:
   })
 
   test("rejects swapped passthrough file targets during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-file-swap-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-file-swap-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     const protectedFile = path.join(tempRoot, "protected.txt")
@@ -1016,11 +1015,12 @@ Run these research agents:
     })).rejects.toThrow(/Refusing to write through symlink target|Refusing to restore through symlink target|ENOENT/)
 
     expect(await fs.readFile(protectedFile, "utf8")).toBe("protected\n")
-    expect((await fs.lstat(targetFile)).isSymbolicLink()).toBe(true)
+    expect((await fs.lstat(targetFile)).isSymbolicLink()).toBe(false)
+    expect(await fs.readFile(targetFile, "utf8")).toBe("original asset\n")
   })
 
   test("removes stale generated-agent directories after normalization changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-stale-generated-agent-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-stale-generated-agent-"))
     const outputRoot = path.join(tempRoot, ".pi")
 
     const firstBundle: PiBundle = {
@@ -1051,7 +1051,7 @@ Run these research agents:
   })
 
   test("removes deleted managed prompts and generated-agent directories", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-delete-managed-artifacts-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-delete-managed-artifacts-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const managedManifestPath = path.join(outputRoot, "compound-engineering", "compound-engineering-managed.json")
 
@@ -1084,7 +1084,7 @@ Run these research agents:
   })
 
   test("removes stale nested files when a skill changes from copied to generated at the same emitted path", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-kind-transition-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-kind-transition-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -1115,7 +1115,7 @@ Run these research agents:
   })
 
   test("does not pre-delete a same-path skill directory claimed only by an unverified manifest", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-unverified-kind-transition-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-unverified-kind-transition-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1155,7 +1155,7 @@ Run these research agents:
   })
 
   test("restores prior managed state when stale skill cleanup fails after publication work", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-stale-cleanup-rollback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-stale-cleanup-rollback-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1193,7 +1193,7 @@ Run these research agents:
   })
 
   test("rejects cyclic directory symlinks during Pi skill materialization", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-cycle-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-skill-cycle-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -1222,7 +1222,7 @@ Run these research agents:
   })
 
   test("backs up existing mcporter config before overwriting", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-backup-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const configPath = path.join(outputRoot, "compound-engineering", "mcporter.json")
 
@@ -1252,7 +1252,7 @@ Run these research agents:
   })
 
   test("records install-owned MCP server keys in managed state", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-install-mcp-ownership-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-install-mcp-ownership-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1278,7 +1278,7 @@ Run these research agents:
   })
 
   test("preserves malformed unverified install mcporter config when install wants to write MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-malformed-unverified-install-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-malformed-unverified-install-mcp-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -1313,7 +1313,7 @@ Run these research agents:
   })
 
   test("classifies old verification hashes as stale when shared resource flags become trust-relevant", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-stale-shared-resources-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-stale-shared-resources-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1347,7 +1347,7 @@ Run these research agents:
   })
 
   test("removes stale install-owned mcporter servers while preserving sync-owned and user-owned keys", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-shared-mcporter-cleanup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-shared-mcporter-cleanup-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1394,7 +1394,7 @@ Run these research agents:
   })
 
   test("reports missing trust info when no managed manifest exists", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-missing-trust-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-missing-trust-"))
     const layout = resolvePiLayout(path.join(tempRoot, ".pi"), "install")
 
     const trust = await getPiManagedTrustInfo(layout)
@@ -1403,7 +1403,7 @@ Run these research agents:
   })
 
   test("does not rewrite unchanged managed manifest on no-op install reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-noop-manifest-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-noop-manifest-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1434,7 +1434,7 @@ Run these research agents:
   })
 
   test("does not snapshot unchanged shared install files on no-op reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-noop-shared-snapshots-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-noop-shared-snapshots-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1469,7 +1469,7 @@ Run these research agents:
   })
 
   test("does not create rollback temp dirs on no-op install reruns for unchanged copied skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-noop-skill-rerun-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-noop-skill-rerun-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1503,7 +1503,7 @@ Run these research agents:
   })
 
   test("does not snapshot unchanged copied skill directories on no-op install reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-noop-skill-snapshot-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-noop-skill-snapshot-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1540,8 +1540,131 @@ Run these research agents:
     delete process.env.COMPOUND_ENGINEERING_HOME
   })
 
+  test("restores the prior copied skill tree when a later AGENTS write fails after an incremental install update", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-incremental-skill-rollback-"))
+    const stateHome = path.join(tempRoot, "state-home")
+    process.env.COMPOUND_ENGINEERING_HOME = stateHome
+
+    const outputRoot = path.join(tempRoot, ".pi")
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    await fs.mkdir(path.join(sourceSkillDir, "nested"), { recursive: true })
+    await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "---\nname: docs-skill\n---\n\nBody\n")
+    await fs.writeFile(path.join(sourceSkillDir, "nested", "stable.txt"), "stable\n")
+
+    await writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [{ name: "plan-review", content: "before" }],
+      skillDirs: [{ name: "docs-skill", sourceDir: sourceSkillDir }],
+      generatedSkills: [],
+      extensions: [{ name: "extra.ts", content: "export const before = true" }],
+    })
+
+    const layout = resolvePiLayout(outputRoot, "install")
+    const targetSkillFile = path.join(layout.skillsDir, "docs-skill", "nested", "stable.txt")
+    await fs.writeFile(path.join(sourceSkillDir, "nested", "stable.txt"), "updated\n")
+    setAtomicWriteFailureHookForTests((filePath, stage) => {
+      if (filePath === path.join(layout.extensionsDir, "extra.ts") && stage === "beforeRename") {
+        throw new Error("simulated extension failure")
+      }
+    })
+
+    await expect(writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [{ name: "plan-review", content: "before" }],
+      skillDirs: [{ name: "docs-skill", sourceDir: sourceSkillDir }],
+      generatedSkills: [],
+      extensions: [{ name: "extra.ts", content: "export const after = true" }],
+    })).rejects.toThrow("simulated extension failure")
+
+    expect(await fs.readFile(targetSkillFile, "utf8")).toBe("stable\n")
+
+    delete process.env.COMPOUND_ENGINEERING_HOME
+  })
+
+  test("preserves executable modes for copied files during install materialization", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-preserve-exec-mode-"))
+    const stateHome = path.join(tempRoot, "state-home")
+    process.env.COMPOUND_ENGINEERING_HOME = stateHome
+
+    const outputRoot = path.join(tempRoot, ".pi")
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    const scriptPath = path.join(sourceSkillDir, "scripts", "run.sh")
+
+    await fs.mkdir(path.dirname(scriptPath), { recursive: true })
+    await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "---\nname: docs-skill\n---\n\nBody\n")
+    await fs.writeFile(scriptPath, "#!/bin/sh\necho installed\n")
+    await fs.chmod(scriptPath, 0o755)
+
+    await writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [],
+      skillDirs: [{ name: "docs-skill", sourceDir: sourceSkillDir }],
+      generatedSkills: [],
+      extensions: [],
+    })
+
+    const targetStats = await fs.stat(path.join(resolvePiLayout(outputRoot, "install").skillsDir, "docs-skill", "scripts", "run.sh"))
+    expect(targetStats.mode & 0o777).toBe(0o755)
+
+    delete process.env.COMPOUND_ENGINEERING_HOME
+  })
+
+  test("preserves non-default mode for rewritten SKILL.md during install materialization", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-skill-md-mode-"))
+    const stateHome = path.join(tempRoot, "state-home")
+    process.env.COMPOUND_ENGINEERING_HOME = stateHome
+
+    const outputRoot = path.join(tempRoot, ".pi")
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    const skillPath = path.join(sourceSkillDir, "SKILL.md")
+
+    await fs.mkdir(sourceSkillDir, { recursive: true })
+    await fs.writeFile(skillPath, "---\nname: docs_skill\n---\n\nBody\n")
+    await fs.chmod(skillPath, 0o755)
+
+    await writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [],
+      skillDirs: [{ name: "docs_skill", sourceDir: sourceSkillDir }],
+      generatedSkills: [],
+      extensions: [],
+    })
+
+    const targetStats = await fs.stat(path.join(resolvePiLayout(outputRoot, "install").skillsDir, "docs_skill", "SKILL.md"))
+    expect(targetStats.mode & 0o777).toBe(0o755)
+
+    delete process.env.COMPOUND_ENGINEERING_HOME
+  })
+
+  test("rejects unresolved first-party structured subagent refs during install copied-skill materialization", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-unresolved-structured-first-party-"))
+    const outputRoot = path.join(tempRoot, ".pi")
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+
+    await fs.mkdir(sourceSkillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(sourceSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: docs-skill",
+        "description: unresolved structured first-party ref",
+        "---",
+        "",
+        'Run subagent with agent="claude-home:missing-agent" and task="feature_description".',
+      ].join("\n"),
+    )
+
+    await expect(writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [],
+      skillDirs: [{ name: "docs-skill", sourceDir: sourceSkillDir }],
+      generatedSkills: [],
+      extensions: [],
+    })).rejects.toThrow("Unsupported unresolved first-party qualified ref for Pi sync: claude-home:missing-agent")
+  })
+
   test("rejects symlinked AGENTS.md targets during Pi bundle writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-agents-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-agents-symlink-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const externalTarget = path.join(tempRoot, "external-agents.md")
     const agentsPath = path.join(outputRoot, "AGENTS.md")
@@ -1562,7 +1685,7 @@ Run these research agents:
   })
 
   test("restores prior AGENTS.md content when managed block publication fails", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-agents-rollback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-agents-rollback-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const agentsPath = path.join(outputRoot, "AGENTS.md")
 
@@ -1586,7 +1709,7 @@ Run these research agents:
   })
 
   test("keeps the prior verified install state when AGENTS publication fails", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-agents-trust-boundary-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-agents-trust-boundary-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1627,7 +1750,7 @@ Run these research agents:
   })
 
   test("removes verification metadata and rollback temp dirs when an install bundle becomes empty", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-empty-install-cleanup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-empty-install-cleanup-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1661,7 +1784,7 @@ Run these research agents:
   })
 
   test("removes newly written prompts when managed state commit fails", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-commit-rollback-prompt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-commit-rollback-prompt-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1699,8 +1822,44 @@ Run these research agents:
     delete process.env.COMPOUND_ENGINEERING_HOME
   })
 
+  test("does not take outer rollback snapshots for managed-state files after a successful install commit", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-managed-state-postcommit-snapshot-"))
+    const stateHome = path.join(tempRoot, "state-home")
+    process.env.COMPOUND_ENGINEERING_HOME = stateHome
+
+    const outputRoot = path.join(tempRoot, ".pi")
+    await writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [{ name: "old-plan", content: "Old prompt" }],
+      skillDirs: [],
+      generatedSkills: [],
+      extensions: [],
+    })
+
+    const layout = resolvePiLayout(outputRoot, "install")
+    setManagedPathSnapshotHookForTests((targetPath) => {
+      if (targetPath === layout.managedManifestPath || targetPath === layout.verificationPath) {
+        throw new Error("managed state should not be outer-snapshotted after commit")
+      }
+    })
+
+    await writePiBundle(outputRoot, {
+      pluginName: "compound-engineering",
+      prompts: [{ name: "new-plan", content: "New prompt" }],
+      skillDirs: [],
+      generatedSkills: [],
+      extensions: [],
+    })
+
+    const trust = await loadPiManagedStateWithTrust(layout)
+    expect(trust.status).toBe("verified")
+    expect(trust.state?.install.artifacts.map((artifact) => artifact.emittedName)).toEqual(["new-plan"])
+
+    delete process.env.COMPOUND_ENGINEERING_HOME
+  })
+
   test("removes the canonical compat extension when install no longer owns it", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-install-compat-removal-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-install-compat-removal-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1735,7 +1894,7 @@ Run these research agents:
   })
 
   test("preserves the canonical compat extension when verified sync state still owns it", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-install-compat-shared-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-install-compat-shared-root-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1768,7 +1927,7 @@ Run these research agents:
   })
 
   test("removes the live compat extension when sync ownership is not verified", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-unverified-sync-compat-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-unverified-sync-compat-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1804,7 +1963,7 @@ Run these research agents:
   })
 
   test("removes the live compat extension and disables advertising when sync ownership at the canonical root is not verified", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-unverified-sync-compat-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-unverified-sync-compat-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1845,7 +2004,7 @@ Run these research agents:
   })
 
   test("documents that ce_subagent cwd must remain inside the active workspace", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-agents-cwd-doc-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-agents-cwd-doc-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1868,7 +2027,7 @@ Run these research agents:
   })
 
   test("install and sync shared-resource transitions stay aligned on AGENTS and compat outcomes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-sync-parity-matrix-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-sync-parity-matrix-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1925,7 +2084,7 @@ Run these research agents:
   })
 
   test("preserves shared mcporter keys when sync ownership at the canonical root is not verified", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-unverified-sync-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-unverified-sync-mcp-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -1973,7 +2132,7 @@ Run these research agents:
   })
 
   test("changing one file in a materialized skill updates content without rewriting unrelated files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-partial-skill-update-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-partial-skill-update-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -2035,7 +2194,7 @@ Run these research agents:
   })
 
   test("root-level file add and remove stay on the incremental skill update path", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-root-delta-incremental-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-root-delta-incremental-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -2084,7 +2243,7 @@ Run these research agents:
   })
 
   test("removes stale nested entries from a materialized skill without creating a backup", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-stale-skill-entry-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-stale-skill-entry-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -2120,7 +2279,7 @@ Run these research agents:
   })
 
   test("falls back to whole-directory replacement for nested file-to-directory transitions", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-shape-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-shape-fallback-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const sourceSkillDir = path.join(tempRoot, "source-skill")
 
@@ -2156,7 +2315,7 @@ Run these research agents:
   })
 
   test("does not delete prompts claimed only by an unverified manifest", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-writer-forged-cleanup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "pi-writer-forged-cleanup-"))
     const outputRoot = path.join(tempRoot, ".pi")
     const layout = resolvePiLayout(outputRoot, "install")
 

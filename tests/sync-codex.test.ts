@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 import { syncToCodex } from "../src/sync/codex"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToCodex", () => {
   test("writes stdio and remote MCP servers into a managed block without clobbering user config", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-codex-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-codex-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
     const configPath = path.join(tempRoot, "config.toml")
 
@@ -65,7 +67,7 @@ describe("syncToCodex", () => {
   })
 
   test("cleans up stale managed block when syncing with zero MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-codex-zero-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-codex-zero-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
     const configPath = path.join(tempRoot, "config.toml")
 

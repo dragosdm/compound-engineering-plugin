@@ -3,7 +3,12 @@ import path from "path"
 import { loadClaudePlugin } from "../src/parsers/claude"
 import { convertClaudeToPi } from "../src/converters/claude-to-pi"
 import { parseFrontmatter } from "../src/utils/frontmatter"
-import { appendCompatibilityNoteIfNeeded, transformPiBodyContent } from "../src/utils/pi-skills"
+import {
+  appendCompatibilityNoteIfNeeded,
+  collectPiSameRunDependencies,
+  normalizePiSkillName,
+  transformPiBodyContent,
+} from "../src/utils/pi-skills"
 import type { ClaudePlugin } from "../src/types/claude"
 
 const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
@@ -326,6 +331,13 @@ describe("convertClaudeToPi", () => {
     expect(transformed).toContain('Run ce_subagent with agent="repo-research-analyst"')
   })
 
+  test("rewrites single-quoted 'Run subagent with agent=' refs", () => {
+    const body = "Run subagent with agent='docs-skill' and task='research'."
+    const transformed = transformPiBodyContent(body)
+    expect(transformed).toContain('Run ce_subagent with agent="docs-skill"')
+    expect(transformed).not.toContain("Run subagent")
+  })
+
   test("remaps agent names in existing structured subagent invocations", () => {
     const body = 'Run subagent with agent="code_review" and task="feature".'
     const transformed = transformPiBodyContent(body, {
@@ -377,5 +389,108 @@ describe("convertClaudeToPi", () => {
     expect(transformed).toContain("https://figma.com/file/123")
     expect(transformed).toContain("/figma-2")
     expect(transformed).not.toContain("https://figma-2.com")
+  })
+})
+
+describe("transformPiBodyContent code block awareness", () => {
+  test("does not transform Task calls inside fenced code blocks", () => {
+    const body = [
+      "Here is an example:",
+      "```",
+      "Task compound-engineering:review:docs(feature)",
+      "```",
+    ].join("\n")
+    const transformed = transformPiBodyContent(body)
+    expect(transformed).toContain("Task compound-engineering:review:docs(feature)")
+    expect(transformed).not.toContain("ce_subagent")
+  })
+
+  test("does not transform /skill refs inside indented code blocks", () => {
+    const body = [
+      "Example usage:",
+      "",
+      "    /skill:claude-home:ce-plan",
+    ].join("\n")
+    const transformed = transformPiBodyContent(body)
+    expect(transformed).toContain("    /skill:claude-home:ce-plan")
+  })
+
+  test("does not transform inline backtick literals", () => {
+    const body = "Use `Task compound-engineering:review:docs(feature)` for reviews."
+    const transformed = transformPiBodyContent(body)
+    expect(transformed).toContain("`Task compound-engineering:review:docs(feature)`")
+    expect(transformed).not.toContain("ce_subagent")
+  })
+})
+
+describe("normalizePiSkillName edge cases", () => {
+  test("empty string returns 'item'", () => {
+    expect(normalizePiSkillName("")).toBe("item")
+  })
+
+  test("whitespace-only returns 'item'", () => {
+    expect(normalizePiSkillName("   ")).toBe("item")
+  })
+
+  test("all-colons returns 'item'", () => {
+    expect(normalizePiSkillName(":::")).toBe("item")
+  })
+
+  test("all-special-characters returns 'item'", () => {
+    expect(normalizePiSkillName("!!!")).toBe("item")
+  })
+})
+
+describe("collectPiSameRunDependencies", () => {
+  test("extracts /skill:claude-home:name references", () => {
+    const content = "Run /skill:claude-home:ce-plan to start."
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.skills).toContain("ce-plan")
+  })
+
+  test("extracts Task claude-home:name(args) references", () => {
+    const content = "- Task claude-home:analyst(feature)"
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.skills).toContain("analyst")
+  })
+
+  test("extracts /prompt:claude-home:name references", () => {
+    const content = "Then run /prompt:claude-home:plan-review to review."
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.prompts).toContain("plan-review")
+  })
+
+  test("extracts /prompts:claude-home:name references", () => {
+    const content = "Then run /prompts:claude-home:plan-review to review."
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.prompts).toContain("plan-review")
+  })
+
+  test("deduplicates repeated refs", () => {
+    const content = [
+      "Use /skill:claude-home:ce-plan first.",
+      "Then use /skill:claude-home:ce-plan again.",
+    ].join("\n")
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.skills.filter((s) => s === "ce-plan")).toHaveLength(1)
+  })
+
+  test("handles names containing hyphens and digits", () => {
+    const content = "- Task claude-home:repo-research-analyst-2(feature)"
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.skills).toContain("repo-research-analyst-2")
+  })
+
+  test("does not collect refs inside fenced code blocks", () => {
+    const content = [
+      "Example:",
+      "```",
+      "/skill:claude-home:ce-plan",
+      "Task claude-home:analyst(feature)",
+      "```",
+    ].join("\n")
+    const deps = collectPiSameRunDependencies(content)
+    expect(deps.skills).toEqual([])
+    expect(deps.prompts).toEqual([])
   })
 })

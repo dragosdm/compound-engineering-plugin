@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -28,7 +30,7 @@ async function runGit(args: string[], cwd: string, env?: NodeJS.ProcessEnv): Pro
 
 describe("CLI", () => {
   test("install converts fixture plugin to OpenCode output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-opencode-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-opencode-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
     const proc = Bun.spawn([
@@ -64,7 +66,7 @@ describe("CLI", () => {
   })
 
   test("install defaults output to ~/.config/opencode", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-local-default-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-local-default-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
     const repoRoot = path.join(import.meta.dir, "..")
@@ -101,7 +103,7 @@ describe("CLI", () => {
   })
 
   test("list returns plugins in a temp workspace", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-list-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-list-"))
     const pluginsRoot = path.join(tempRoot, "plugins", "demo-plugin", ".claude-plugin")
     await fs.mkdir(pluginsRoot, { recursive: true })
     await fs.writeFile(path.join(pluginsRoot, "plugin.json"), "{\n  \"name\": \"demo-plugin\",\n  \"version\": \"1.0.0\"\n}\n")
@@ -125,9 +127,9 @@ describe("CLI", () => {
   })
 
   test("install pulls from GitHub when local path is missing", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-github-install-"))
-    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-github-workspace-"))
-    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-github-repo-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-github-install-"))
+    const workspaceRoot = await fs.mkdtemp(path.join(tmpdir, "cli-github-workspace-"))
+    const repoRoot = await fs.mkdtemp(path.join(tmpdir, "cli-github-repo-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
     const pluginRoot = path.join(repoRoot, "plugins", "compound-engineering")
 
@@ -181,8 +183,8 @@ describe("CLI", () => {
   })
 
   test("install uses bundled compound-engineering plugin for codex output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-bundled-codex-home-"))
-    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-bundled-codex-workspace-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-bundled-codex-home-"))
+    const workspaceRoot = await fs.mkdtemp(path.join(tmpdir, "cli-bundled-codex-workspace-"))
     const projectRoot = path.join(import.meta.dir, "..")
     const codexRoot = path.join(tempRoot, ".codex")
 
@@ -221,9 +223,9 @@ describe("CLI", () => {
   })
 
   test("install by name ignores same-named local directory", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-shadow-"))
-    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-shadow-workspace-"))
-    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-shadow-repo-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-shadow-"))
+    const workspaceRoot = await fs.mkdtemp(path.join(tmpdir, "cli-shadow-workspace-"))
+    const repoRoot = await fs.mkdtemp(path.join(tmpdir, "cli-shadow-repo-"))
 
     // Create a directory with the plugin name that is NOT a valid plugin
     const shadowDir = path.join(workspaceRoot, "compound-engineering")
@@ -283,8 +285,8 @@ describe("CLI", () => {
   })
 
   test("install --branch clones a specific branch for non-Claude targets", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-branch-install-"))
-    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-branch-repo-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-branch-install-"))
+    const repoRoot = await fs.mkdtemp(path.join(tmpdir, "cli-branch-repo-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
     const pluginRoot = path.join(repoRoot, "plugins", "compound-engineering")
 
@@ -345,7 +347,7 @@ describe("CLI", () => {
   })
 
   test("convert writes OpenCode output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-convert-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-convert-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
     const proc = Bun.spawn([
@@ -377,7 +379,7 @@ describe("CLI", () => {
   })
 
   test("convert supports --codex-home for codex output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-codex-home-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-codex-home-"))
     const codexRoot = path.join(tempRoot, ".codex")
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
@@ -413,7 +415,7 @@ describe("CLI", () => {
   })
 
   test("install supports --also with codex output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-also-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-also-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
     const codexRoot = path.join(tempRoot, ".codex")
 
@@ -454,7 +456,7 @@ describe("CLI", () => {
   })
 
   test("convert supports --pi-home for pi output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-pi-home-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-pi-home-"))
     const piRoot = path.join(tempRoot, ".pi")
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
@@ -491,7 +493,7 @@ describe("CLI", () => {
   })
 
   test("install supports --also with pi output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-also-pi-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-also-pi-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
     const piRoot = path.join(tempRoot, ".pi")
 
@@ -530,7 +532,7 @@ describe("CLI", () => {
   })
 
   test("install --to opencode uses permissions:none by default", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-perms-none-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-perms-none-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
     const proc = Bun.spawn([
@@ -568,7 +570,7 @@ describe("CLI", () => {
   })
 
   test("install --to opencode --permissions broad writes permission block", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cli-perms-broad-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "cli-perms-broad-"))
     const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
     const proc = Bun.spawn([
@@ -608,8 +610,8 @@ describe("CLI", () => {
   })
 
   test("sync --target all detects new sync targets and ignores stale cursor directories", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "cli-sync-home-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "cli-sync-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "cli-sync-home-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "cli-sync-cwd-"))
     const repoRoot = path.join(import.meta.dir, "..")
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
     const claudeSkillsDir = path.join(tempHome, ".claude", "skills", "skill-one")

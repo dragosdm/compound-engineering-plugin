@@ -50,6 +50,10 @@ export function setManagedPathSnapshotHookForTests(hook: ManagedPathSnapshotHook
   managedPathSnapshotHook = hook
 }
 
+export function getManagedPathSnapshotHookForTests(): ManagedPathSnapshotHook | null {
+  return managedPathSnapshotHook
+}
+
 export async function backupFile(filePath: string): Promise<string | null> {
   if (!(await pathExists(filePath))) return null
 
@@ -82,7 +86,7 @@ export async function ensureDir(dirPath: string): Promise<void> {
   await fs.mkdir(dirPath, { recursive: true })
 }
 
-export async function ensureManagedDir(dirPath: string): Promise<void> {
+export async function ensureManagedDir(dirPath: string, ancestorCache?: Map<string, true>): Promise<void> {
   const resolved = path.resolve(dirPath)
   const root = path.parse(resolved).root
   const relative = path.relative(root, resolved)
@@ -92,6 +96,8 @@ export async function ensureManagedDir(dirPath: string): Promise<void> {
   for (const segment of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, segment)
 
+    if (ancestorCache?.has(current)) continue
+
     const stats = await fs.lstat(current).catch(() => null)
     if (stats) {
       if (stats.isSymbolicLink()) {
@@ -100,6 +106,7 @@ export async function ensureManagedDir(dirPath: string): Promise<void> {
       if (!stats.isDirectory()) {
         throw new Error(`Refusing to mutate through non-directory ancestor ${current}`)
       }
+      ancestorCache?.set(current, true)
       continue
     }
 
@@ -117,13 +124,14 @@ export async function ensureManagedDir(dirPath: string): Promise<void> {
     if (!rechecked.isDirectory()) {
       throw new Error(`Refusing to mutate through non-directory ancestor ${current}`)
     }
+    ancestorCache?.set(current, true)
   }
 }
 
-export async function ensureManagedParentDir(filePath: string): Promise<void> {
-  await assertNoSymlinkAncestors(filePath)
-  await ensureManagedDir(path.dirname(filePath))
-  await assertNoSymlinkAncestors(filePath)
+export async function ensureManagedParentDir(filePath: string, ancestorCache?: Map<string, true>): Promise<void> {
+  await assertNoSymlinkAncestors(filePath, ancestorCache)
+  await ensureManagedDir(path.dirname(filePath), ancestorCache)
+  await assertNoSymlinkAncestors(filePath, ancestorCache)
 }
 
 export async function readText(filePath: string): Promise<string> {
@@ -136,7 +144,7 @@ export async function readJson<T>(filePath: string): Promise<T> {
 }
 
 export async function writeText(filePath: string, content: string): Promise<void> {
-  await ensureManagedParentDir(filePath)
+  await ensureDir(path.dirname(filePath))
   await fs.writeFile(filePath, content, "utf8")
 }
 
@@ -187,7 +195,6 @@ export async function removeFileIfExists(filePath: string): Promise<void> {
     if (!stats.isFile()) {
       throw new Error(`Refusing to remove unexpected target ${filePath}`)
     }
-    await assertNoSymlinkAncestors(filePath)
     const rechecked = await fs.lstat(filePath)
     if (rechecked.isSymbolicLink()) {
       throw new Error(`Refusing to remove symlink target ${filePath}`)
@@ -229,7 +236,10 @@ export async function assertNoSymlinkTarget(filePath: string): Promise<void> {
   }
 }
 
-export async function assertNoSymlinkAncestors(targetPath: string): Promise<void> {
+export async function assertNoSymlinkAncestors(
+  targetPath: string,
+  ancestorCache?: Map<string, true>,
+): Promise<void> {
   const resolvedTarget = path.resolve(targetPath)
   const ancestors: string[] = []
   let current = path.dirname(resolvedTarget)
@@ -242,6 +252,7 @@ export async function assertNoSymlinkAncestors(targetPath: string): Promise<void
   }
 
   for (const ancestor of ancestors.reverse()) {
+    if (ancestorCache?.has(ancestor)) continue
     try {
       const stats = await fs.lstat(ancestor)
       if (stats.isSymbolicLink()) {
@@ -250,6 +261,7 @@ export async function assertNoSymlinkAncestors(targetPath: string): Promise<void
       if (!stats.isDirectory()) {
         throw new Error(`Refusing to mutate through non-directory ancestor ${ancestor}`)
       }
+      ancestorCache?.set(ancestor, true)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         continue
@@ -265,16 +277,19 @@ export async function writeTextAtomicIfChanged(options: {
   mode?: number
   skipFailureHook?: boolean
   existingContent?: string | null
+  ancestorCache?: Map<string, true>
 }): Promise<boolean> {
-  const { filePath, content, mode, skipFailureHook = false, existingContent } = options
-  await assertNoSymlinkAncestors(filePath)
+  const { filePath, content, mode, skipFailureHook = false, existingContent, ancestorCache } = options
+  await assertNoSymlinkAncestors(filePath, ancestorCache)
   await assertNoSymlinkTarget(filePath)
+  const existingStats = await fs.stat(filePath).catch(() => null)
   const existing = existingContent === undefined ? await readText(filePath).catch(() => null) : existingContent
-  if (existing === content) {
+  const modeMatches = mode === undefined || !existingStats || (existingStats.mode & 0o777) === mode
+  if (existing === content && modeMatches) {
     return false
   }
 
-  await ensureManagedParentDir(filePath)
+  await ensureManagedParentDir(filePath, ancestorCache)
   await assertNoSymlinkTarget(filePath)
   await maybeFailAtomicWrite(filePath, "beforeWrite", skipFailureHook)
 
@@ -292,7 +307,7 @@ export async function writeTextAtomicIfChanged(options: {
       await fs.chmod(tempPath, mode)
     }
     await maybeFailAtomicWrite(filePath, "beforeRename", skipFailureHook)
-    await assertNoSymlinkAncestors(filePath)
+    await assertNoSymlinkAncestors(filePath, ancestorCache)
     await assertNoSymlinkTarget(filePath)
     await fs.rename(tempPath, filePath)
   } catch (error) {
@@ -308,16 +323,19 @@ export async function writeFileAtomicIfChanged(options: {
   content: Buffer
   mode?: number
   skipFailureHook?: boolean
+  ancestorCache?: Map<string, true>
 }): Promise<boolean> {
-  const { filePath, content, mode, skipFailureHook = false } = options
-  await assertNoSymlinkAncestors(filePath)
+  const { filePath, content, mode, skipFailureHook = false, ancestorCache } = options
+  await assertNoSymlinkAncestors(filePath, ancestorCache)
   await assertNoSymlinkTarget(filePath)
-  const existing = await fs.readFile(filePath).catch(() => null)
-  if (existing && existing.equals(content)) {
+  const existingStats = await fs.stat(filePath).catch(() => null)
+  const existing = existingStats ? await fs.readFile(filePath) : null
+  const modeMatches = mode === undefined || !existingStats || (existingStats.mode & 0o777) === mode
+  if (existing && existing.equals(content) && modeMatches) {
     return false
   }
 
-  await ensureManagedParentDir(filePath)
+  await ensureManagedParentDir(filePath, ancestorCache)
   await assertNoSymlinkTarget(filePath)
   await maybeFailAtomicWrite(filePath, "beforeWrite", skipFailureHook)
 
@@ -332,7 +350,7 @@ export async function writeFileAtomicIfChanged(options: {
       await fs.chmod(tempPath, mode)
     }
     await maybeFailAtomicWrite(filePath, "beforeRename", skipFailureHook)
-    await assertNoSymlinkAncestors(filePath)
+    await assertNoSymlinkAncestors(filePath, ancestorCache)
     await assertNoSymlinkTarget(filePath)
     await fs.rename(tempPath, filePath)
   } catch (error) {
@@ -480,7 +498,6 @@ export async function removeManagedPathIfExists(targetPath: string): Promise<voi
   const stats = await fs.lstat(targetPath).catch(() => null)
   if (!stats) return
   if (stats.isSymbolicLink()) {
-    await assertNoSymlinkAncestors(targetPath)
     const rechecked = await fs.lstat(targetPath)
     if (!rechecked.isSymbolicLink()) {
       throw new Error(`Refusing to remove unexpected target ${targetPath}`)
@@ -489,7 +506,6 @@ export async function removeManagedPathIfExists(targetPath: string): Promise<voi
     return
   }
   if (stats.isDirectory()) {
-    await assertNoSymlinkAncestors(targetPath)
     const rechecked = await fs.lstat(targetPath)
     if (!rechecked.isDirectory() || rechecked.isSymbolicLink()) {
       throw new Error(`Refusing to remove unexpected target ${targetPath}`)
@@ -498,7 +514,6 @@ export async function removeManagedPathIfExists(targetPath: string): Promise<voi
     return
   }
   if (stats.isFile()) {
-    await assertNoSymlinkAncestors(targetPath)
     const rechecked = await fs.lstat(targetPath)
     if (!rechecked.isFile() || rechecked.isSymbolicLink()) {
       throw new Error(`Refusing to remove unexpected target ${targetPath}`)
@@ -646,14 +661,20 @@ export async function copyDir(sourceDir: string, targetDir: string): Promise<voi
 }
 
 /**
- * Copy a skill directory, optionally transforming SKILL.md content.
- * All other files are copied verbatim. Used by target writers to apply
+ * Copy a skill directory, optionally transforming markdown content.
+ * Non-markdown files are copied verbatim. Used by target writers to apply
  * platform-specific content transforms to pass-through skills.
+ *
+ * By default only SKILL.md is transformed (safe for slash-command rewrites
+ * that shouldn't touch reference files). Set `transformAllMarkdown` to also
+ * transform reference .md files — needed when the transform rewrites content
+ * that appears in reference files (e.g. fully-qualified agent names).
  */
 export async function copySkillDir(
   sourceDir: string,
   targetDir: string,
   transformSkillContent?: (content: string) => string,
+  transformAllMarkdown?: boolean,
 ): Promise<void> {
   await ensureDir(targetDir)
   const entries = await fs.readdir(sourceDir, { withFileTypes: true })
@@ -663,9 +684,12 @@ export async function copySkillDir(
     const targetPath = path.join(targetDir, entry.name)
 
     if (entry.isDirectory()) {
-      await copySkillDir(sourcePath, targetPath, transformSkillContent)
+      await copySkillDir(sourcePath, targetPath, transformSkillContent, transformAllMarkdown)
     } else if (entry.isFile()) {
-      if (entry.name === "SKILL.md" && transformSkillContent) {
+      const shouldTransform = transformSkillContent && (
+        entry.name === "SKILL.md" || (transformAllMarkdown && entry.name.endsWith(".md"))
+      )
+      if (shouldTransform) {
         const content = await readText(sourcePath)
         await writeText(targetPath, transformSkillContent(content))
       } else {

@@ -1,6 +1,7 @@
 import { promises as fs } from "fs"
 import path from "path"
 import type { ClaudeSkill } from "../types/claude"
+import type { PiSyncHooks } from "../types/pi"
 import { ensureDir } from "../utils/files"
 import { copySkillDirForPi, collectPiSameRunDependencies, type PiNameMaps } from "../utils/pi-skills"
 import { isValidSkillName } from "../utils/symlink"
@@ -53,6 +54,8 @@ export async function syncPiSkills(
   skillMap: Record<string, string>,
   nameMaps?: PiNameMaps,
   hooks?: SyncPiSkillHooks,
+  ancestorCache?: Map<string, true>,
+  piSyncHooks?: PiSyncHooks,
 ): Promise<SyncPiSkillResult[]> {
   await ensureDir(skillsDir)
 
@@ -81,6 +84,8 @@ export async function syncPiSkills(
         {
           onBeforeMutate: (mode) => hooks?.onBeforeMutate?.(skill.name, target, mode),
         },
+        ancestorCache,
+        piSyncHooks,
       )
     } catch (error) {
       if (!isUnsupportedPiSyncArtifactError(error)) {

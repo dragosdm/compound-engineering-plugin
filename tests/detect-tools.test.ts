@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { detectInstalledTools, getDetectedTargetNames } from "../src/utils/detect-tools"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("detectInstalledTools", () => {
   test("detects tools when config directories exist", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "detect-tools-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "detect-tools-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "detect-tools-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "detect-tools-cwd-"))
 
     // Create directories for some tools
     await fs.mkdir(path.join(tempHome, ".codex"), { recursive: true })
@@ -45,8 +47,8 @@ describe("detectInstalledTools", () => {
   })
 
   test("returns all tools with detected=false when no directories exist", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "detect-empty-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "detect-empty-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "detect-empty-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "detect-empty-cwd-"))
 
     const results = await detectInstalledTools(tempHome, tempCwd)
 
@@ -58,8 +60,8 @@ describe("detectInstalledTools", () => {
   })
 
   test("detects home-based tools", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "detect-home-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "detect-home-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "detect-home-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "detect-home-cwd-"))
 
     await fs.mkdir(path.join(tempHome, ".config", "opencode"), { recursive: true })
     await fs.mkdir(path.join(tempHome, ".factory"), { recursive: true })
@@ -75,8 +77,8 @@ describe("detectInstalledTools", () => {
   })
 
   test("detects copilot from project-specific skills without generic .github false positives", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "detect-copilot-home-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "detect-copilot-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "detect-copilot-home-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "detect-copilot-cwd-"))
 
     await fs.mkdir(path.join(tempCwd, ".github"), { recursive: true })
 
@@ -93,8 +95,8 @@ describe("detectInstalledTools", () => {
 
 describe("getDetectedTargetNames", () => {
   test("returns only names of detected tools", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "detect-names-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "detect-names-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "detect-names-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "detect-names-cwd-"))
 
     await fs.mkdir(path.join(tempHome, ".codex"), { recursive: true })
     await fs.mkdir(path.join(tempHome, ".gemini"), { recursive: true })
@@ -110,8 +112,8 @@ describe("getDetectedTargetNames", () => {
   })
 
   test("returns empty array when nothing detected", async () => {
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "detect-none-"))
-    const tempCwd = await fs.mkdtemp(path.join(os.tmpdir(), "detect-none-cwd-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "detect-none-"))
+    const tempCwd = await fs.mkdtemp(path.join(tmpdir, "detect-none-cwd-"))
 
     const names = await getDetectedTargetNames(tempHome, tempCwd)
     expect(names).toEqual([])

@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 import { syncToKiro } from "../src/sync/kiro"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToKiro", () => {
   test("writes user-scope settings/mcp.json with local and remote servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-kiro-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-kiro-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -48,7 +50,7 @@ describe("syncToKiro", () => {
   })
 
   test("merges existing settings/mcp.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-kiro-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-kiro-merge-"))
     await fs.mkdir(path.join(tempRoot, "settings"), { recursive: true })
     await fs.writeFile(
       path.join(tempRoot, "settings", "mcp.json"),

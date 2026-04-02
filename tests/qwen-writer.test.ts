@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import { writeQwenBundle } from "../src/targets/qwen"
 import type { QwenBundle } from "../src/types/qwen"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 function makeBundle(mcpServers?: Record<string, { command: string }>): QwenBundle {
   return {
@@ -23,7 +25,7 @@ function makeBundle(mcpServers?: Record<string, { command: string }>): QwenBundl
 
 describe("writeQwenBundle", () => {
   test("removes stale plugin MCP servers on re-install", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-converge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-converge-"))
 
     await writeQwenBundle(tempRoot, makeBundle({ old: { command: "old-server" } }))
     await writeQwenBundle(tempRoot, makeBundle({ fresh: { command: "new-server" } }))
@@ -34,7 +36,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("preserves user-added MCP servers across re-installs", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-user-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-user-mcp-"))
 
     // User has their own MCP server alongside plugin-managed ones (tracking key present)
     await fs.writeFile(
@@ -54,7 +56,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("preserves unknown top-level keys from existing config", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-preserve-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-preserve-"))
 
     await fs.writeFile(
       path.join(tempRoot, "qwen-extension.json"),
@@ -71,7 +73,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("prunes stale servers from legacy config without tracking key", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-legacy-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-legacy-"))
 
     // Simulate old writer output: has mcpServers but no _compound_managed_mcp
     await fs.writeFile(
@@ -92,7 +94,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("does not prune untracked user config when plugin has zero MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-untracked-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-untracked-"))
 
     // Pre-existing user config with no tracking key (never had the plugin before)
     await fs.writeFile(
@@ -112,7 +114,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("cleans up all plugin MCP servers when bundle has none", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-zero-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-zero-"))
 
     await writeQwenBundle(tempRoot, makeBundle({ old: { command: "old-server" } }))
     await writeQwenBundle(tempRoot, makeBundle())
@@ -123,7 +125,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("preserves user servers across zero-MCP-then-MCP round trip", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-roundtrip-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-roundtrip-"))
 
     // 1. Install with plugin MCP
     await writeQwenBundle(tempRoot, makeBundle({ plugin: { command: "plugin-server" } }))
@@ -147,7 +149,7 @@ describe("writeQwenBundle", () => {
   })
 
   test("prunes stale top-level plugin keys when incoming config drops them", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qwen-stale-keys-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "qwen-stale-keys-"))
 
     // First install with settings
     const bundleWithSettings: QwenBundle = {

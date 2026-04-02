@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import {
@@ -8,13 +8,15 @@ import {
   ensureCodexAgentsFile,
 } from "../src/utils/codex-agents"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 async function readFile(filePath: string): Promise<string> {
   return fs.readFile(filePath, "utf8")
 }
 
 describe("ensureCodexAgentsFile", () => {
   test("creates AGENTS.md with managed block when missing", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-agents-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "codex-agents-"))
     await ensureCodexAgentsFile(tempRoot)
 
     const agentsPath = path.join(tempRoot, "AGENTS.md")
@@ -25,7 +27,7 @@ describe("ensureCodexAgentsFile", () => {
   })
 
   test("appends block without touching existing content", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-agents-existing-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "codex-agents-existing-"))
     const agentsPath = path.join(tempRoot, "AGENTS.md")
     await fs.writeFile(agentsPath, "# My Rules\n\nKeep this.")
 
@@ -39,7 +41,7 @@ describe("ensureCodexAgentsFile", () => {
   })
 
   test("replaces only the managed block when present", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-agents-update-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "codex-agents-update-"))
     const agentsPath = path.join(tempRoot, "AGENTS.md")
     const seed = [
       "Intro text",

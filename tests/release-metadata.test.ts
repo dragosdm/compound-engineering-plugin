@@ -1,5 +1,6 @@
 import { mkdtemp, mkdir, writeFile } from "fs/promises"
 import os from "os"
+import { realpathSync } from "fs"
 import path from "path"
 import { afterEach, describe, expect, test } from "bun:test"
 import {
@@ -7,6 +8,8 @@ import {
   getCompoundEngineeringCounts,
   syncReleaseMetadata,
 } from "../src/release/metadata"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 const tempRoots: string[] = []
 
@@ -17,7 +20,7 @@ afterEach(async () => {
 })
 
 async function makeFixtureRoot(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "release-metadata-"))
+  const root = await mkdtemp(path.join(tmpdir, "release-metadata-"))
   tempRoots.push(root)
 
   await mkdir(path.join(root, "plugins", "compound-engineering", "agents", "review"), {

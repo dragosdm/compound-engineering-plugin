@@ -1,5 +1,6 @@
+import fs from "fs/promises"
 import path from "path"
-import { pathExists, writeJsonSecureIfChanged, captureTextFileSnapshot, restoreTextFileSnapshot } from "../utils/files"
+import { pathExists, writeJsonSecureIfChanged } from "../utils/files"
 
 type JsonObject = Record<string, unknown>
 
@@ -42,16 +43,18 @@ export async function mergeJsonConfigAtKey(options: {
     }
   }
 
-  const snapshot = snapshotOnWrite ? await captureTextFileSnapshot(configPath) : null
-
   try {
     return {
       didWrite: await writeJsonSecureIfChanged(configPath, merged),
       isEmpty: Object.keys(merged).length === 0,
     }
   } catch (error) {
-    if (snapshot) {
-      await restoreTextFileSnapshot(snapshot)
+    if (snapshotOnWrite) {
+      if (existingText !== null) {
+        await Bun.write(configPath, existingText)
+      } else {
+        await fs.unlink(configPath).catch(() => {})
+      }
     }
     throw error
   }

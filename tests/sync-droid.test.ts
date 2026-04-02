@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { syncToDroid } from "../src/sync/droid"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToDroid", () => {
   test("symlinks skills to factory skills dir and writes mcp.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-droid-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-droid-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -40,7 +42,7 @@ describe("syncToDroid", () => {
   })
 
   test("merges existing mcp.json and overwrites same-named servers from Claude", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-droid-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-droid-merge-"))
     await fs.writeFile(
       path.join(tempRoot, "mcp.json"),
       JSON.stringify({
@@ -75,7 +77,7 @@ describe("syncToDroid", () => {
   })
 
   test("skips skills with invalid names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-droid-invalid-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-droid-invalid-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {

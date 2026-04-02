@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { createHash } from "crypto"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { pathToFileURL } from "url"
 import { classifyUnsupportedPiSyncStatus } from "../src/sync/pi-artifact-status"
-import { setPiSyncPassHookForTests, setPiSyncRerunModeForTests, syncToPi } from "../src/sync/pi"
-import { setPiSyncCommandConversionHookForTests } from "../src/sync/commands"
+import { syncToPi } from "../src/sync/pi"
 import { loadClaudeHome } from "../src/parsers/claude-home"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 import { PI_COMPAT_EXTENSION_SOURCE } from "../src/templates/pi/compat-extension"
@@ -15,9 +14,11 @@ import { setAtomicWriteFailureHookForTests, setManagedPathSnapshotHookForTests }
 import { resolvePiLayout } from "../src/utils/pi-layout"
 import { createManagedArtifact, createPiManagedSection, createPiManagedSectionHashPayload, loadPiManagedStateWithTrust, replacePiManagedSection, writePiManagedState } from "../src/utils/pi-managed"
 import { isSafePiManagedName } from "../src/utils/pi-managed"
-import { getPiPolicyFingerprint, setPiPolicyFingerprintForTests } from "../src/utils/pi-policy"
-import { normalizePiSkillName, setPiSkillFullCompareHookForTests, setPiSkillSourceAnalysisHookForTests, setPiSkillSourceFingerprintHookForTests, uniquePiSkillName } from "../src/utils/pi-skills"
+import { getPiPolicyFingerprint } from "../src/utils/pi-policy"
+import { normalizePiSkillName, uniquePiSkillName } from "../src/utils/pi-skills"
 import { derivePiSharedResourceContract } from "../src/utils/pi-trust-contract"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function seedVerifiedInstallNameMaps(
   outputRoot: string,
@@ -73,6 +74,7 @@ async function seedVerifiedSyncNameMaps(
       compatExtension?: boolean
       mcporterConfig?: boolean
     }
+    policyFingerprintOverride?: string
   },
 ): Promise<void> {
   const layout = resolvePiLayout(outputRoot, "sync")
@@ -80,7 +82,7 @@ async function seedVerifiedSyncNameMaps(
     nameMaps,
     sharedResources: options?.sharedResources,
   }), "compound-engineering")
-  await writePiManagedState(layout, state, { install: false, sync: true })
+  await writePiManagedState(layout, state, { install: false, sync: true }, options?.policyFingerprintOverride)
 }
 
 async function seedVerifiedGlobalSyncNameMaps(
@@ -149,13 +151,6 @@ function normalizeRootPaths<T>(value: T, root: string): T {
 afterEach(() => {
   setAtomicWriteFailureHookForTests(null)
   setManagedPathSnapshotHookForTests(null)
-  setPiSyncPassHookForTests(null)
-  setPiSyncRerunModeForTests(null)
-  setPiSyncCommandConversionHookForTests(null)
-  setPiSkillFullCompareHookForTests(null)
-  setPiSkillSourceAnalysisHookForTests(null)
-  setPiSkillSourceFingerprintHookForTests(null)
-  setPiPolicyFingerprintForTests(null)
   delete process.env.COMPOUND_ENGINEERING_PI_POLICY_FINGERPRINT
 })
 
@@ -198,7 +193,7 @@ describe("syncToPi", () => {
   })
 
   test("classifies freshly written sync manifests as verified for their canonical root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-verified-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-verified-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -223,7 +218,7 @@ describe("syncToPi", () => {
   })
 
   test("materializes synced skills and writes MCPorter config", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
     const layout = resolvePiLayout(tempRoot, "sync")
 
@@ -257,7 +252,7 @@ describe("syncToPi", () => {
   })
 
   test("writes custom sync roots at the direct sync layout", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-custom-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-custom-root-"))
     const outputRoot = path.join(tempRoot, "custom-root")
     const layout = resolvePiLayout(outputRoot, "sync")
 
@@ -279,7 +274,7 @@ describe("syncToPi", () => {
   })
 
   test("accepts top-level personal skills discovered through trusted symlink entries", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-external-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-external-root-"))
     const actualSkillsRoot = path.join(tempRoot, "actual-skills")
     const linkedSkillsRoot = path.join(tempRoot, "linked-skills")
     const externalSkillDir = path.join(tempRoot, "external-skill")
@@ -322,7 +317,7 @@ describe("syncToPi", () => {
   })
 
   test("accepts top-level personal skills that resolve within the lexical trusted root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-in-root-home-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-in-root-home-symlink-"))
     const actualSkillsRoot = path.join(tempRoot, "actual-skills")
     const linkedSkillsRoot = path.join(tempRoot, "linked-skills")
     const canonicalSkillDir = path.join(actualSkillsRoot, "reviewer-real")
@@ -364,7 +359,7 @@ describe("syncToPi", () => {
   })
 
   test("records symlinked top-level personal skills using a canonical trusted boundary", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-canonical-trusted-boundary-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-canonical-trusted-boundary-"))
     const actualSkillsRoot = path.join(tempRoot, "actual-skills")
     const linkedSkillsRoot = path.join(tempRoot, "skills")
     const externalSkillDir = path.join(tempRoot, "external-skill")
@@ -386,7 +381,7 @@ describe("syncToPi", () => {
   })
 
   test("materializes invalid skill names into Pi-safe directories", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-invalid-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-invalid-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -411,6 +406,14 @@ describe("syncToPi", () => {
           skillPath: path.join(sourceSkillDir, "SKILL.md"),
         },
       ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "forces later prompt write",
+          body: "before",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
       mcpServers: {},
     }
 
@@ -427,7 +430,7 @@ describe("syncToPi", () => {
   })
 
   test("materializes valid Pi-named skills when body needs Pi-specific rewrites", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-transform-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-valid")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -466,7 +469,7 @@ describe("syncToPi", () => {
   })
 
   test("keeps a previously materialized Pi skill directory materialized after rewrites are no longer needed", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-dir-to-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-dir-to-symlink-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-transition")
     const syncedSkillPath = path.join(tempRoot, "skills", "ce-plan")
     const skillPath = path.join(sourceSkillDir, "SKILL.md")
@@ -530,7 +533,7 @@ describe("syncToPi", () => {
   })
 
   test("removes stale nested entries from a materialized synced skill without creating a backup", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-stale-entry-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-stale-entry-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-stale")
     const syncedSkillPath = path.join(tempRoot, "skills", "ce-plan")
     const skillPath = path.join(sourceSkillDir, "SKILL.md")
@@ -558,7 +561,7 @@ describe("syncToPi", () => {
   })
 
   test("falls back to whole-directory replacement for nested file-to-directory transitions during sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-shape-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-shape-fallback-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-shape")
     const syncedSkillPath = path.join(tempRoot, "skills", "ce-plan")
     const skillPath = path.join(sourceSkillDir, "SKILL.md")
@@ -588,7 +591,7 @@ describe("syncToPi", () => {
   })
 
   test("replaces an existing symlink when Pi-specific materialization is required", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-symlink-migration-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-symlink-migration-"))
     const existingTargetDir = path.join(tempRoot, "existing-skill")
     const sourceSkillDir = path.join(tempRoot, "claude-skill-migrated")
     const syncedSkillPath = path.join(tempRoot, "skills", "ce-plan")
@@ -634,7 +637,7 @@ describe("syncToPi", () => {
   })
 
   test("rejects Pi skill replacement when the skill parent directory becomes a symlinked ancestor", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-replacement-ancestor-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-replacement-ancestor-symlink-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-migrated")
     const skillsParent = path.join(tempRoot, "skills")
     const syncedSkillPath = path.join(skillsParent, "ce-plan")
@@ -667,7 +670,7 @@ describe("syncToPi", () => {
   })
 
   test("updates an existing real directory in place when Pi-specific materialization can converge safely", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-backup-dir-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-backup-dir-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-updated")
     const syncedSkillPath = path.join(tempRoot, "skills", "ce-plan")
 
@@ -714,7 +717,7 @@ describe("syncToPi", () => {
   })
 
   test("merges existing MCPorter config", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-merge-"))
     const mcporterPath = path.join(tempRoot, "compound-engineering", "mcporter.json")
     await fs.mkdir(path.dirname(mcporterPath), { recursive: true })
 
@@ -741,7 +744,7 @@ describe("syncToPi", () => {
   })
 
   test("writes compat extension for MCP-only sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-mcp-only-compat-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-mcp-only-compat-"))
 
     const config: ClaudeHomeConfig = {
       skills: [],
@@ -760,7 +763,7 @@ describe("syncToPi", () => {
   })
 
   test("regenerates valid frontmatter when a skill has malformed frontmatter", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-malformed-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-malformed-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -801,7 +804,7 @@ describe("syncToPi", () => {
   })
 
   test("does not create another backup when malformed skill output is already converged", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-malformed-stable-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-malformed-stable-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -841,7 +844,7 @@ describe("syncToPi", () => {
   })
 
   test("repairs a malformed previously materialized skill target on rerun", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-malformed-target-repair-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-malformed-target-repair-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const targetSkillDir = path.join(tempRoot, "skills", "broken-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
@@ -876,7 +879,7 @@ describe("syncToPi", () => {
   })
 
   test("rewrites frontmatterless skills during Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-frontmatterless-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-frontmatterless-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-frontmatterless")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -907,7 +910,7 @@ describe("syncToPi", () => {
   })
 
   test("does not create another backup when frontmatterless skill output is already converged", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-frontmatterless-stable-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-frontmatterless-stable-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill-frontmatterless")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -942,7 +945,7 @@ describe("syncToPi", () => {
   })
 
   test("keeps a previously invalid materialized skill materialized when it becomes Pi-compatible without forcing a backup", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-invalid-recovery-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-invalid-recovery-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const syncedSkillPath = path.join(tempRoot, "skills", "frontmatterless-skill")
     const skillPath = path.join(sourceSkillDir, "SKILL.md")
@@ -998,7 +1001,7 @@ describe("syncToPi", () => {
   })
 
   test("resolves /skill: refs to deduped targets when personal skill names collide", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-skill-collision-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skill-collision-"))
     const skillDirHyphen = path.join(tempRoot, "generate-command")
     const skillDirUnderscore = path.join(tempRoot, "generate_command")
 
@@ -1058,7 +1061,7 @@ describe("syncToPi", () => {
   })
 
   test("resolves Task refs to deduped skill targets when personal skill names collide", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-task-skill-collision-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-task-skill-collision-"))
     const skillDirHyphen = path.join(tempRoot, "generate-command")
     const skillDirUnderscore = path.join(tempRoot, "generate_command")
 
@@ -1113,7 +1116,7 @@ describe("syncToPi", () => {
   })
 
   test("rewritten synced skill prompt refs match emitted prompt filenames when command names collide", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-prompt-collision-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-prompt-collision-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
 
     await fs.mkdir(sourceSkillDir, { recursive: true })
@@ -1166,7 +1169,7 @@ describe("syncToPi", () => {
   })
 
   test("writes compat extension when skills-only config has Task calls", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-skills-only-compat-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skills-only-compat-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -1202,7 +1205,7 @@ describe("syncToPi", () => {
   })
 
   test("writes the managed AGENTS block during sync publication", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-agents-block-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-agents-block-"))
 
     await syncToPi({
       skills: [],
@@ -1225,7 +1228,7 @@ describe("syncToPi", () => {
   })
 
   test("copies symlinked file assets when Pi sync materializes a skill", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-symlink-asset-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-symlink-asset-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const sharedAssetPath = path.join(sourceSkillDir, "shared.txt")
 
@@ -1264,7 +1267,7 @@ describe("syncToPi", () => {
   })
 
   test("materializes top-level personal skills through trusted symlink entries without dropping in-boundary assets", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-entry-symlink-internal-asset-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-entry-symlink-internal-asset-"))
     const actualSkillsRoot = path.join(tempRoot, "actual-skills")
     const linkedSkillsRoot = path.join(tempRoot, "linked-skills")
     const externalSkillDir = path.join(tempRoot, "external-skill")
@@ -1306,7 +1309,7 @@ describe("syncToPi", () => {
   })
 
   test("skips symlinked file assets that escape the skill root during Pi sync materialization", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-escaped-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-escaped-symlink-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const externalAssetDir = path.join(tempRoot, "shared")
     const externalAssetPath = path.join(externalAssetDir, "shared.txt")
@@ -1344,7 +1347,7 @@ describe("syncToPi", () => {
   })
 
   test("resolves installed-plugin namespaced refs during Claude-home Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-installed-plugin-refs-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-installed-plugin-refs-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
 
     await fs.mkdir(sourceSkillDir, { recursive: true })
@@ -1377,6 +1380,14 @@ describe("syncToPi", () => {
           skillPath: path.join(sourceSkillDir, "SKILL.md"),
         },
       ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "forces later prompt write",
+          body: "before",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
       mcpServers: {},
     }
 
@@ -1388,7 +1399,7 @@ describe("syncToPi", () => {
   })
 
   test("dedupes personal sync names against installed managed Pi targets", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-installed-name-reservations-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-installed-name-reservations-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
 
     await fs.mkdir(sourceSkillDir, { recursive: true })
@@ -1443,7 +1454,7 @@ describe("syncToPi", () => {
   })
 
   test("preserves unknown qualified /skill refs during Claude-home Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-preserve-qualified-refs-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-preserve-qualified-refs-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
 
     await fs.mkdir(sourceSkillDir, { recursive: true })
@@ -1467,6 +1478,14 @@ describe("syncToPi", () => {
           skillPath: path.join(sourceSkillDir, "SKILL.md"),
         },
       ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "forces later prompt write",
+          body: "before",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
       mcpServers: {},
     }
 
@@ -1477,7 +1496,7 @@ describe("syncToPi", () => {
   })
 
   test("does not let unverified install state reserve sync names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-unverified-install-reservation-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unverified-install-reservation-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const projectManagedDir = path.join(tempRoot, "compound-engineering")
 
@@ -1539,7 +1558,7 @@ describe("syncToPi", () => {
   })
 
   test("does not let unverified sync state reserve sync names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-unverified-sync-reservation-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unverified-sync-reservation-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const projectManagedDir = path.join(tempRoot, "compound-engineering")
 
@@ -1599,7 +1618,7 @@ describe("syncToPi", () => {
   })
 
   test("records trusted top-level personal skills as managed artifacts", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-managed-materialized-only-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-managed-materialized-only-"))
     const actualSkillsRoot = path.join(tempRoot, "actual-skills")
     const linkedSkillsRoot = path.join(tempRoot, "linked-skills")
     const externalSkillDir = path.join(tempRoot, "external-skill")
@@ -1644,7 +1663,7 @@ describe("syncToPi", () => {
   })
 
   test("rejects unresolved first-party qualified prompt slash refs during Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-qualified-prompt-slash-reject-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-qualified-prompt-slash-reject-"))
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
 
     await syncToPi({
@@ -1667,7 +1686,7 @@ describe("syncToPi", () => {
   })
 
   test("does not record skipped unsafe skills in sync-managed aliases or shared resources", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-skipped-skill-state-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skipped-skill-state-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
 
@@ -1703,7 +1722,7 @@ describe("syncToPi", () => {
   })
 
   test("prunes stale skipped-skill aliases from prior sync state on rerun", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-prune-stale-skipped-state-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-prune-stale-skipped-state-"))
     const layout = resolvePiLayout(tempRoot, "sync")
     const stateHome = path.join(tempRoot, "state-home")
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -1745,7 +1764,7 @@ describe("syncToPi", () => {
   })
 
   test("rewrites claude-home qualified refs from verified global sync aliases when the nearest project manifest lacks sync-scoped state", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-unverified-local-ce-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unverified-local-ce-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
@@ -1813,7 +1832,7 @@ describe("syncToPi", () => {
   })
 
   test("rewrites compound-engineering qualified refs from verified global install aliases during Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-global-install-ref-rewrite-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-global-install-ref-rewrite-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
@@ -1865,7 +1884,7 @@ describe("syncToPi", () => {
   })
 
   test("rewrites compound-engineering qualified refs from verified project-local install aliases during Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-local-install-ref-rewrite-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-local-install-ref-rewrite-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -1908,7 +1927,7 @@ describe("syncToPi", () => {
   })
 
   test("reserves verified global sync emitted names before allocating local Claude-home names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-global-name-reservation-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-global-name-reservation-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
@@ -1964,7 +1983,7 @@ describe("syncToPi", () => {
   })
 
   test("reserves verified global install emitted names before allocating local Pi names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-global-install-name-reservation-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-global-install-name-reservation-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
@@ -2020,7 +2039,7 @@ describe("syncToPi", () => {
   })
 
   test("reserves verified project-local install emitted names before allocating local Pi names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-local-install-name-reservation-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-local-install-name-reservation-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -2067,7 +2086,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime prefers verified nested install aliases over verified direct-root legacy install aliases", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-nested-install-precedence-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-nested-install-precedence-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2092,7 +2111,7 @@ describe("syncToPi", () => {
   })
 
   test("sync and runtime fall back to an independently verified direct-root install layer when nested install is invalid", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-direct-root-install-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-direct-root-install-fallback-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2142,7 +2161,7 @@ describe("syncToPi", () => {
   })
 
   test("sync rewrites unqualified skill refs against verified install precedence before global sync aliases", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-install-over-global-sync-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-install-over-global-sync-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
@@ -2195,7 +2214,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime resolves unqualified names by nearest verified precedence before raising conflicts", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-unqualified-precedence-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-unqualified-precedence-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2224,7 +2243,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime prefers project install aliases for unqualified names over same-root sync aliases", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-same-root-unqualified-precedence-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-same-root-unqualified-precedence-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2253,7 +2272,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime ignores repo-local sibling manifests as bundled fallback candidates", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-bundled-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-bundled-fallback-"))
     const moduleRoot = path.join(tempRoot, "runtime-root")
     const workspaceRoot = path.join(tempRoot, "workspace")
 
@@ -2295,7 +2314,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime discovers sync layout aliases and mcporter config from nested cwd", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-sync-layout-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-sync-layout-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "apps", "docs")
@@ -2323,7 +2342,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime rejects cwd escapes outside the active workspace", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-cwd-boundary-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-cwd-boundary-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "apps", "docs")
@@ -2348,7 +2367,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime anchors cwd checks to the authoritative workspace root, not the nested invocation dir", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-workspace-root-cwd-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-workspace-root-cwd-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "apps", "docs")
@@ -2369,7 +2388,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime allows same-workspace sibling cwd navigation without verified project manifests", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-workspace-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-workspace-fallback-"))
     const nestedCwd = path.join(tempRoot, "apps", "docs")
     const siblingDir = path.join(tempRoot, "apps", "api")
 
@@ -2383,7 +2402,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime falls back to filesystem workspace detection when project trust is stale", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-stale-workspace-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-stale-workspace-root-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "apps", "docs")
@@ -2409,7 +2428,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_subagent rejects invalid parallel cwd values before launching any tasks", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-cwd-preflight-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-cwd-preflight-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -2457,7 +2476,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_list_capabilities exposes the current verified runtime capability set", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-capability-discovery-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-capability-discovery-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2510,7 +2529,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_run_prompt executes a verified prompt alias inside the active workspace", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-run-prompt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-run-prompt-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2557,7 +2576,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_run_prompt resolves alias manifest signatures once per execution path when cwd is unchanged", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-run-prompt-signatures-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-run-prompt-signatures-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2603,7 +2622,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_run_prompt rejects unknown qualified prompt targets", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-run-prompt-reject-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-run-prompt-reject-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -2639,7 +2658,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_run_prompt rejects unmanaged unqualified prompt targets", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-run-prompt-unqualified-reject-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-run-prompt-unqualified-reject-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -2675,7 +2694,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_subagent rejects unmanaged unqualified agent targets", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-subagent-unqualified-reject-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-subagent-unqualified-reject-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -2711,7 +2730,7 @@ describe("syncToPi", () => {
   })
 
   test("persists the current Pi policy fingerprint in sync managed state", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-policy-fingerprint-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-policy-fingerprint-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -2735,11 +2754,10 @@ describe("syncToPi", () => {
   })
 
   test("treats sync managed state as stale when the policy fingerprint changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-policy-fingerprint-stale-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-policy-fingerprint-stale-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
-    setPiPolicyFingerprintForTests("policy-v1")
     await syncToPi({
       commands: [
         {
@@ -2751,10 +2769,9 @@ describe("syncToPi", () => {
       ],
       skills: [],
       mcpServers: {},
-    }, tempRoot)
+    }, tempRoot, { policyFingerprintOverride: "policy-v1" })
 
-    setPiPolicyFingerprintForTests("policy-v2")
-    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"), "policy-v2")
     expect(trust.status).toBe("stale")
     expect(trust.verifiedSections.sync).toBe(false)
 
@@ -2762,19 +2779,18 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime stops trusting aliases after only policy trust inputs change", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-policy-stale-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-policy-stale-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
     await fs.mkdir(nestedCwd, { recursive: true })
-    setPiPolicyFingerprintForTests("policy-v1")
     await seedVerifiedSyncNameMaps(projectRoot, {
       skills: {
         "claude-home:ce-plan": "ce-plan-sync",
       },
-    })
+    }, { policyFingerprintOverride: "policy-v1" })
 
     process.env.COMPOUND_ENGINEERING_PI_POLICY_FINGERPRINT = "policy-v1"
     const { resolveAgentName } = await loadCompatHelpers(projectRoot)
@@ -2787,7 +2803,7 @@ describe("syncToPi", () => {
   })
 
   test("runtime alias resolution reuses one ancestor-walk path set per lookup", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-alias-walk-proof-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-alias-walk-proof-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2813,7 +2829,7 @@ describe("syncToPi", () => {
   })
 
   test("mcporter_list ignores stale direct callers that still send configPath", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-configpath-direct-caller-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-configpath-direct-caller-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     await fs.mkdir(tempRoot, { recursive: true })
@@ -2851,7 +2867,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime blocks global mcporter fallback when a nearer project config is unverified", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-unverified-mcp-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-unverified-mcp-fallback-"))
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
     const projectRoot = path.join(tempRoot, "project")
@@ -2898,7 +2914,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime resolves install and sync namespaces from different project layouts at the same root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-dual-layout-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-dual-layout-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2932,7 +2948,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime resolves verified legacy top-level name maps for both namespaces", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-legacy-top-level-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-legacy-top-level-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -2988,7 +3004,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime trusts verified legacy install generatedSkills arrays", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-legacy-generated-skills-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-legacy-generated-skills-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3026,7 +3042,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime trusts verified legacy sync prompt arrays", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-legacy-sync-prompts-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-legacy-sync-prompts-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3064,7 +3080,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime keeps scoped name maps authoritative over legacy top-level maps", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-scoped-over-legacy-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-scoped-over-legacy-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3125,7 +3141,7 @@ describe("syncToPi", () => {
   })
 
   test("runtime and on-disk state agree across install, sync, and nested cwd lookup for canonical custom-root layouts", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-custom-root-contract-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-custom-root-contract-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "apps", "docs")
@@ -3182,7 +3198,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime refreshes alias routing after a same-process manifest update", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-refresh-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-refresh-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3211,7 +3227,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime recovers after a transient manifest parse failure in the same process", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-parse-recovery-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-parse-recovery-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3244,7 +3260,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime fails closed for an unverified nearest project install manifest", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-unverified-install-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-unverified-install-fallback-"))
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
     const projectRoot = path.join(tempRoot, "project")
@@ -3294,7 +3310,7 @@ describe("syncToPi", () => {
   })
 
   test("sync does not rewrite against global install aliases when an unverified nearest project install manifest blocks fallback", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-blocked-global-install-rewrite-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-blocked-global-install-rewrite-"))
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
@@ -3357,7 +3373,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime refreshes alias trust after verification removal without manifest changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-verification-refresh-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-verification-refresh-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3396,7 +3412,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime treats trailing-separator install roots as the same canonical trusted root", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-runtime-trailing-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-runtime-trailing-root-"))
     const stateHome = path.join(tempRoot, "state-home")
     const projectRoot = path.join(tempRoot, "project")
     const nestedCwd = path.join(projectRoot, "nested", "cwd")
@@ -3429,7 +3445,7 @@ describe("syncToPi", () => {
   })
 
   test("does not collapse unknown qualified refs to local same-leaf targets during Claude-home Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-qualified-shadowing-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-qualified-shadowing-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const localSkillDir = path.join(tempRoot, "local-plan")
 
@@ -3472,7 +3488,7 @@ describe("syncToPi", () => {
   })
 
   test("skips only the offending skill when foreign qualified Task refs are unsupported during Pi sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-qualified-task-shadowing-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-qualified-task-shadowing-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const localSkillDir = path.join(tempRoot, "local-agent")
     const validSkillDir = path.join(tempRoot, "valid-skill")
@@ -3530,8 +3546,8 @@ describe("syncToPi", () => {
     warnSpy.mockRestore()
   })
 
-  test("re-renders sibling skill refs against the final published alias set after unsupported siblings drop out", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-sibling-publication-atomicity-"))
+  test("omits qualified same-run skill refs when the sibling becomes unsupported-final", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-sibling-publication-atomicity-"))
     const docsSkillDir = path.join(tempRoot, "docs-skill")
     const badSkillDir = path.join(tempRoot, "bad-skill")
     const goodSkillDir = path.join(tempRoot, "good-skill")
@@ -3586,22 +3602,20 @@ describe("syncToPi", () => {
     }, tempRoot)
 
     await expect(fs.access(path.join(tempRoot, "skills", "bad-skill", "SKILL.md"))).rejects.toBeDefined()
-    const docsSkill = await fs.readFile(path.join(tempRoot, "skills", "docs-skill", "SKILL.md"), "utf8")
+    await expect(fs.access(path.join(tempRoot, "skills", "docs-skill", "SKILL.md"))).rejects.toBeDefined()
     expect(await fs.readFile(path.join(tempRoot, "skills", "good-skill", "SKILL.md"), "utf8")).toContain("Body")
-    expect(docsSkill).not.toContain("/skill:bad-skill")
-    expect(docsSkill).toContain("/skill:claude-home:bad-skill")
 
     const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
     expect(trust.state?.sync.nameMaps.skills["good-skill"]).toBe("good-skill")
     expect(trust.state?.sync.nameMaps.skills["bad-skill"]).toBeUndefined()
-    expect(trust.state?.sync.nameMaps.skills["docs-skill"]).toBe("docs-skill")
+    expect(trust.state?.sync.nameMaps.skills["docs-skill"]).toBeUndefined()
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Skipping unsupported Pi sync skill bad-skill"))
 
     warnSpy.mockRestore()
   })
 
   test("retries a first-pass blocked skill after a colliding sibling drops out", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-retry-skill-after-shrink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-retry-skill-after-shrink-"))
     const retryableSkillDir = path.join(tempRoot, "retryable-skill")
     const blockingSkillDir = path.join(tempRoot, "blocking-skill")
     const validSkillDir = path.join(tempRoot, "valid-skill")
@@ -3618,7 +3632,7 @@ describe("syncToPi", () => {
         "description: retry after sibling shrink",
         "---",
         "",
-        "- Task compound-engineering:review:bad(feature_description)",
+        "- Task bad(feature_description)",
       ].join("\n"),
     )
     await fs.writeFile(
@@ -3643,22 +3657,18 @@ describe("syncToPi", () => {
       mcpServers: {},
     }, tempRoot)
 
-    const docsSkill = await fs.readFile(path.join(tempRoot, "skills", "docs-skill", "SKILL.md"), "utf8")
-    expect(docsSkill).toContain('Run ce_subagent with agent="bad" and task="feature_description".')
-    await expect(fs.access(path.join(tempRoot, "skills", "bad", "SKILL.md"))).rejects.toBeDefined()
-    expect(await fs.readFile(path.join(tempRoot, "skills", "valid-skill", "SKILL.md"), "utf8")).toContain("Body")
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Skipping unsupported Pi sync skill bad"))
-    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("Skipping unsupported Pi sync skill docs-skill"))
 
     const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
-    expect(trust.state?.sync.nameMaps.skills["docs-skill"]).toBe("docs-skill")
+    expect(trust.state?.sync.nameMaps.skills["docs-skill"]).toBeUndefined()
     expect(trust.state?.sync.nameMaps.skills.bad).toBeUndefined()
+    expect(trust.state?.sync.nameMaps.skills["valid-skill"]).toBe("valid-skill")
 
     warnSpy.mockRestore()
   })
 
-  test("retries a first-pass blocked prompt after a colliding sibling skill drops out", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-retry-prompt-after-shrink-"))
+  test("does not publish dependent prompts when a same-run sibling becomes unsupported-final", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-retry-prompt-after-shrink-"))
     const blockingSkillDir = path.join(tempRoot, "blocking-skill")
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
 
@@ -3683,7 +3693,7 @@ describe("syncToPi", () => {
         {
           name: "plan-review",
           description: "Prompt retries after sibling shrink",
-          body: "- Task compound-engineering:review:bad(feature_description)",
+          body: "- Task bad(feature_description)",
           sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
         },
         {
@@ -3696,20 +3706,19 @@ describe("syncToPi", () => {
       mcpServers: {},
     }, tempRoot)
 
-    expect(await fs.readFile(path.join(tempRoot, "prompts", "plan-review.md"), "utf8")).toContain('Run ce_subagent with agent="bad" and task="feature_description".')
+    await expect(fs.access(path.join(tempRoot, "prompts", "plan-review.md"))).rejects.toBeDefined()
     expect(await fs.readFile(path.join(tempRoot, "prompts", "safe-review.md"), "utf8")).toContain("Body")
     await expect(fs.access(path.join(tempRoot, "skills", "bad", "SKILL.md"))).rejects.toBeDefined()
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Skipping unsupported Pi sync skill bad"))
-    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("Skipping unsupported Pi sync command plan-review"))
 
     const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
-    expect(trust.state?.sync.nameMaps.prompts["plan-review"]).toBe("plan-review")
+    expect(trust.state?.sync.nameMaps.prompts["plan-review"]).toBeUndefined()
 
     warnSpy.mockRestore()
   })
 
   test("rewrites same-run claude-home qualified sibling refs for both synced commands and skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-same-run-qualified-sibling-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-same-run-qualified-sibling-"))
     const docsSkillDir = path.join(tempRoot, "docs-skill")
     const planSkillDir = path.join(tempRoot, "plan-skill")
 
@@ -3762,8 +3771,402 @@ describe("syncToPi", () => {
     expect(syncedPrompt).toContain('Run ce_subagent with agent="ce-plan" and task="feature_description".')
   })
 
+  test("keeps a prompt published when it depends on a same-run skill that publishes", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-cross-type-prompt-skill-"))
+    const planSkillDir = path.join(tempRoot, "plan-skill")
+
+    await fs.mkdir(planSkillDir, { recursive: true })
+    await fs.writeFile(path.join(planSkillDir, "SKILL.md"), "---\nname: ce:plan\n---\n\nBody\n")
+
+    await syncToPi({
+      skills: [
+        {
+          name: "ce:plan",
+          sourceDir: planSkillDir,
+          skillPath: path.join(planSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "depends on same-run skill",
+          body: "- Task claude-home:ce:plan(feature_description)",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    expect(await fs.readFile(path.join(tempRoot, "prompts", "plan-review.md"), "utf8")).toContain('Run ce_subagent with agent="ce-plan" and task="feature_description".')
+
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
+    expect(trust.state?.sync.nameMaps.prompts["plan-review"]).toBe("plan-review")
+    expect(trust.state?.sync.artifacts.some((artifact) => artifact.kind === "prompt" && artifact.emittedName === "plan-review")).toBe(true)
+  })
+
+  test("keeps a skill published when it depends on a same-run prompt that publishes", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-cross-type-skill-prompt-"))
+    const docsSkillDir = path.join(tempRoot, "docs-skill")
+
+    await fs.mkdir(docsSkillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(docsSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: docs-skill",
+        "description: depends on same-run prompt",
+        "---",
+        "",
+        "- /prompt:claude-home:plan-review",
+      ].join("\n"),
+    )
+
+    await syncToPi({
+      skills: [
+        {
+          name: "docs-skill",
+          sourceDir: docsSkillDir,
+          skillPath: path.join(docsSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "published sibling prompt",
+          body: "Body",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    expect(await fs.readFile(path.join(tempRoot, "skills", "docs-skill", "SKILL.md"), "utf8")).toContain("/prompt:plan-review")
+
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
+    expect(trust.state?.sync.nameMaps.skills["docs-skill"]).toBe("docs-skill")
+    expect(trust.state?.sync.artifacts.some((artifact) => artifact.kind === "synced-skill" && artifact.emittedName === "docs-skill")).toBe(true)
+  })
+
+  test("demotes punctuated same-run skill refs when the sibling skill drops out", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-punctuated-skill-dependency-"))
+    const badSkillDir = path.join(tempRoot, "bad-skill")
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+
+    await fs.mkdir(badSkillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(badSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: ce:plan",
+        "description: bad sibling",
+        "---",
+        "",
+        "- Task unknown-plugin:review:bad(feature_description)",
+      ].join("\n"),
+    )
+
+    await syncToPi({
+      skills: [
+        {
+          name: "ce:plan",
+          sourceDir: badSkillDir,
+          skillPath: path.join(badSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "punctuated dependency",
+          body: "See /skill:claude-home:ce:plan, then continue.",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    await expect(fs.access(path.join(tempRoot, "prompts", "plan-review.md"))).rejects.toBeDefined()
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
+    expect(trust.state?.sync.nameMaps.prompts["plan-review"]).toBeUndefined()
+    warnSpy.mockRestore()
+  })
+
+  test("demotes unqualified same-run Task refs when the sibling skill drops out", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unqualified-task-dependency-"))
+    const badSkillDir = path.join(tempRoot, "bad-skill")
+
+    await fs.mkdir(badSkillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(badSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: ce:plan",
+        "description: bad sibling",
+        "---",
+        "",
+        "- Task unknown-plugin:review:bad(feature_description)",
+      ].join("\n"),
+    )
+
+    await syncToPi({
+      skills: [
+        {
+          name: "ce:plan",
+          sourceDir: badSkillDir,
+          skillPath: path.join(badSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "unqualified same-run dependency",
+          body: "- Task ce:plan(feature_description)",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    await expect(fs.access(path.join(tempRoot, "prompts", "plan-review.md"))).rejects.toBeDefined()
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
+    expect(trust.state?.sync.nameMaps.prompts["plan-review"]).toBeUndefined()
+  })
+
+  test("demotes structured same-run subagent refs when the sibling skill drops out", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-structured-agent-dependency-"))
+    const badSkillDir = path.join(tempRoot, "bad-skill")
+
+    await fs.mkdir(badSkillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(badSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: ce:plan",
+        "description: bad sibling",
+        "---",
+        "",
+        "- Task unknown-plugin:review:bad(feature_description)",
+      ].join("\n"),
+    )
+
+    await syncToPi({
+      skills: [
+        {
+          name: "ce:plan",
+          sourceDir: badSkillDir,
+          skillPath: path.join(badSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "structured same-run dependency",
+          body: 'Run subagent with agent="claude-home:ce:plan" and task="feature_description".',
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    await expect(fs.access(path.join(tempRoot, "prompts", "plan-review.md"))).rejects.toBeDefined()
+  })
+
+  test("ignores same-run refs that only appear inside fenced code blocks", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-code-block-dependency-"))
+    const badSkillDir = path.join(tempRoot, "bad-skill")
+
+    await fs.mkdir(badSkillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(badSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: ce:plan",
+        "description: bad sibling",
+        "---",
+        "",
+        "- Task unknown-plugin:review:bad(feature_description)",
+      ].join("\n"),
+    )
+
+    await syncToPi({
+      skills: [
+        {
+          name: "ce:plan",
+          sourceDir: badSkillDir,
+          skillPath: path.join(badSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "code block example only",
+          body: [
+            "Example:",
+            "```md",
+            "/skill:claude-home:ce:plan",
+            "```",
+          ].join("\n"),
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    const prompt = await fs.readFile(path.join(tempRoot, "prompts", "plan-review.md"), "utf8")
+    expect(prompt).toContain("/skill:claude-home:ce:plan")
+    const trust = await loadPiManagedStateWithTrust(resolvePiLayout(tempRoot, "sync"))
+    expect(trust.state?.sync.nameMaps.prompts["plan-review"]).toBe("plan-review")
+  })
+
+  test("skips unresolved first-party structured subagent refs instead of normalizing to leaf agents", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unresolved-structured-first-party-"))
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+
+    await syncToPi({
+      skills: [],
+      commands: [
+        {
+          name: "plan-review",
+          description: "structured first-party missing agent",
+          body: 'Run subagent with agent="claude-home:missing-agent" and task="feature_description".',
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    await expect(fs.access(path.join(tempRoot, "prompts", "plan-review.md"))).rejects.toBeDefined()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Skipping unsupported Pi sync command plan-review"))
+    warnSpy.mockRestore()
+  })
+
+  test("preserves executable modes for copied files during sync materialization", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-preserve-exec-mode-"))
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    const scriptPath = path.join(sourceSkillDir, "scripts", "run.sh")
+
+    await fs.mkdir(path.dirname(scriptPath), { recursive: true })
+    await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "---\nname: docs-skill\n---\n\nBody\n")
+    await fs.writeFile(scriptPath, "#!/bin/sh\necho synced\n")
+    await fs.chmod(scriptPath, 0o755)
+
+    await syncToPi({
+      skills: [
+        {
+          name: "docs-skill",
+          sourceDir: sourceSkillDir,
+          skillPath: path.join(sourceSkillDir, "SKILL.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    const targetStats = await fs.stat(path.join(tempRoot, "skills", "docs-skill", "scripts", "run.sh"))
+    expect(targetStats.mode & 0o777).toBe(0o755)
+  })
+
+  test("updates copied file mode when the source mode changes without content changes", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-mode-only-update-"))
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    const scriptPath = path.join(sourceSkillDir, "scripts", "run.sh")
+    const targetPath = path.join(tempRoot, "skills", "docs-skill", "scripts", "run.sh")
+
+    await fs.mkdir(path.dirname(scriptPath), { recursive: true })
+    await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "---\nname: docs-skill\n---\n\nBody\n")
+    await fs.writeFile(scriptPath, "#!/bin/sh\necho synced\n")
+    await fs.chmod(scriptPath, 0o644)
+
+    await syncToPi({
+      skills: [
+        {
+          name: "docs-skill",
+          sourceDir: sourceSkillDir,
+          skillPath: path.join(sourceSkillDir, "SKILL.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    expect((await fs.stat(targetPath)).mode & 0o777).toBe(0o644)
+
+    await fs.chmod(scriptPath, 0o755)
+    await syncToPi({
+      skills: [
+        {
+          name: "docs-skill",
+          sourceDir: sourceSkillDir,
+          skillPath: path.join(sourceSkillDir, "SKILL.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    expect((await fs.stat(targetPath)).mode & 0o777).toBe(0o755)
+  })
+
+  test("preserves non-default mode for rewritten SKILL.md during sync materialization", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skill-md-mode-"))
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    const skillPath = path.join(sourceSkillDir, "SKILL.md")
+
+    await fs.mkdir(sourceSkillDir, { recursive: true })
+    await fs.writeFile(skillPath, "---\nname: docs_skill\n---\n\nBody\n")
+    await fs.chmod(skillPath, 0o755)
+
+    await syncToPi({
+      skills: [
+        {
+          name: "docs_skill",
+          sourceDir: sourceSkillDir,
+          skillPath,
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    const targetStats = await fs.stat(path.join(tempRoot, "skills", "docs-skill", "SKILL.md"))
+    expect(targetStats.mode & 0o777).toBe(0o755)
+  })
+
+  test("updates rewritten SKILL.md mode when the source mode changes without content changes", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skill-md-mode-only-update-"))
+    const sourceSkillDir = path.join(tempRoot, "source-skill")
+    const skillPath = path.join(sourceSkillDir, "SKILL.md")
+    const targetPath = path.join(tempRoot, "skills", "docs-skill", "SKILL.md")
+
+    await fs.mkdir(sourceSkillDir, { recursive: true })
+    await fs.writeFile(skillPath, "---\nname: docs_skill\n---\n\nBody\n")
+    await fs.chmod(skillPath, 0o644)
+
+    await syncToPi({
+      skills: [
+        {
+          name: "docs_skill",
+          sourceDir: sourceSkillDir,
+          skillPath,
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    expect((await fs.stat(targetPath)).mode & 0o777).toBe(0o644)
+
+    await fs.chmod(skillPath, 0o755)
+    await syncToPi({
+      skills: [
+        {
+          name: "docs_skill",
+          sourceDir: sourceSkillDir,
+          skillPath,
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    expect((await fs.stat(targetPath)).mode & 0o777).toBe(0o755)
+  })
+
   test("narrows second-pass sync work to retryable artifacts only", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-narrow-rerun-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-narrow-rerun-"))
     const blockingSkillDir = path.join(tempRoot, "blocking-skill")
     const stableSkillDir = path.join(tempRoot, "stable-skill")
     const passPayloads: Array<{ passNumber: number; activeCommandNames: string[]; activeSkillNames: string[] }> = []
@@ -3783,10 +4186,6 @@ describe("syncToPi", () => {
       ].join("\n"),
     )
     await fs.writeFile(path.join(stableSkillDir, "SKILL.md"), "---\nname: stable-skill\n---\n\nStable\n")
-
-    setPiSyncPassHookForTests((payload) => {
-      passPayloads.push(payload)
-    })
 
     await syncToPi({
       skills: [
@@ -3816,7 +4215,11 @@ describe("syncToPi", () => {
         },
       ],
       mcpServers: {},
-    }, tempRoot)
+    }, tempRoot, {
+      onPass: (payload) => {
+        passPayloads.push(payload)
+      },
+    })
 
     expect(passPayloads).toHaveLength(2)
     expect(passPayloads[0]).toEqual({
@@ -3834,11 +4237,8 @@ describe("syncToPi", () => {
   })
 
   test("batches Pi prompt conversion for multi-command sync when prompts are all convertible", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-command-batch-convert-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-command-batch-convert-"))
     let conversionCalls = 0
-    setPiSyncCommandConversionHookForTests(() => {
-      conversionCalls += 1
-    })
 
     await syncToPi({
       skills: [],
@@ -3857,7 +4257,11 @@ describe("syncToPi", () => {
         },
       ],
       mcpServers: {},
-    }, tempRoot)
+    }, tempRoot, {
+      onCommandConversion: () => {
+        conversionCalls += 1
+      },
+    })
 
     expect(conversionCalls).toBe(1)
     expect(await fs.readFile(path.join(tempRoot, "prompts", "plan-review.md"), "utf8")).toContain("Body one")
@@ -3865,8 +4269,8 @@ describe("syncToPi", () => {
   })
 
   test("narrowed reruns preserve the same final sync outputs as the canonical full rerun", async () => {
-    const narrowRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-rerun-parity-narrow-"))
-    const fullRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-rerun-parity-full-"))
+    const narrowRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-rerun-parity-narrow-"))
+    const fullRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-rerun-parity-full-"))
 
     for (const root of [narrowRoot, fullRoot]) {
       const blockingSkillDir = path.join(root, "blocking-skill")
@@ -3947,8 +4351,7 @@ describe("syncToPi", () => {
     warnSpy = spyOn(console, "warn").mockImplementation((message: string) => {
       fullWarnings.push(message)
     })
-    setPiSyncRerunModeForTests("full")
-    await syncToPi(buildConfig(fullRoot), fullRoot)
+    await syncToPi(buildConfig(fullRoot), fullRoot, { rerunMode: "full" })
     warnSpy.mockRestore()
 
     const [narrowTree, fullTree] = await Promise.all([
@@ -3966,7 +4369,7 @@ describe("syncToPi", () => {
   })
 
   test("skips unresolved first-party qualified Task refs instead of retargeting to same-leaf local aliases", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-unresolved-first-party-task-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unresolved-first-party-task-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const localSkillDir = path.join(tempRoot, "local-agent")
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -4009,7 +4412,7 @@ describe("syncToPi", () => {
   })
 
   test("does not collapse unresolved first-party qualified /skill refs to local leaf names during sync", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-unresolved-first-party-skill-ref-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-unresolved-first-party-skill-ref-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const localSkillDir = path.join(tempRoot, "local-plan")
 
@@ -4050,7 +4453,7 @@ describe("syncToPi", () => {
   })
 
   test("skips only the offending prompt when foreign qualified Task refs are unsupported in synced commands", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-command-foreign-task-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-command-foreign-task-"))
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
 
     await syncToPi({
@@ -4080,7 +4483,7 @@ describe("syncToPi", () => {
   })
 
   test("sync-managed state keeps only aliases for successfully published prompts and skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-published-state-aliases-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-published-state-aliases-"))
     const validSkillDir = path.join(tempRoot, "valid-skill")
     const invalidSkillDir = path.join(tempRoot, "invalid-skill")
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -4146,7 +4549,7 @@ describe("syncToPi", () => {
   })
 
   test("sync-managed MCP ownership includes only emitted mcporter server keys", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-published-state-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-published-state-mcp-"))
 
     await syncToPi({
       skills: [],
@@ -4168,7 +4571,7 @@ describe("syncToPi", () => {
   })
 
   test("removes deleted synced prompts when Claude-home commands disappear", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-command-deletion-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-command-deletion-"))
     const promptPath = path.join(tempRoot, "prompts", "plan-review.md")
     const managedManifestPath = path.join(tempRoot, "compound-engineering", "compound-engineering-managed.json")
 
@@ -4203,8 +4606,53 @@ describe("syncToPi", () => {
     }
   })
 
+  test("does not take outer rollback snapshots for managed-state files after a successful sync commit", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-managed-state-postcommit-snapshot-"))
+    const stateHome = path.join(tempRoot, "state-home")
+    process.env.COMPOUND_ENGINEERING_HOME = stateHome
+
+    await syncToPi({
+      skills: [],
+      commands: [
+        {
+          name: "old-plan",
+          description: "old",
+          body: "Old body",
+          sourcePath: path.join(tempRoot, "commands", "old-plan.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    const layout = resolvePiLayout(tempRoot, "sync")
+    setManagedPathSnapshotHookForTests((targetPath) => {
+      if (targetPath === layout.managedManifestPath || targetPath === layout.verificationPath) {
+        throw new Error("managed state should not be outer-snapshotted after commit")
+      }
+    })
+
+    await syncToPi({
+      skills: [],
+      commands: [
+        {
+          name: "new-plan",
+          description: "new",
+          body: "New body",
+          sourcePath: path.join(tempRoot, "commands", "new-plan.md"),
+        },
+      ],
+      mcpServers: {},
+    }, tempRoot)
+
+    const trust = await loadPiManagedStateWithTrust(layout)
+    expect(trust.status).toBe("verified")
+    expect(trust.state?.sync.artifacts.map((artifact) => artifact.emittedName)).toEqual(["new-plan"])
+
+    delete process.env.COMPOUND_ENGINEERING_HOME
+  })
+
   test("removes renamed synced prompts after a later verified rerun from a legacy prompt filename", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-legacy-prompt-rename-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-legacy-prompt-rename-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -4246,7 +4694,7 @@ describe("syncToPi", () => {
   })
 
   test("removes deleted synced skills on a later verified rerun", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-skill-deletion-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skill-deletion-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
@@ -4288,7 +4736,7 @@ describe("syncToPi", () => {
   })
 
   test("removes stale synced MCP servers when Claude-home config deletes them", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-mcp-removal-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-mcp-removal-"))
     const mcporterPath = path.join(tempRoot, "compound-engineering", "mcporter.json")
 
     await syncToPi({
@@ -4310,7 +4758,7 @@ describe("syncToPi", () => {
   })
 
   test("does not remove unrelated MCP servers claimed only by an unverified sync manifest", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-forged-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-forged-mcp-"))
     const mcporterPath = path.join(tempRoot, "compound-engineering", "mcporter.json")
     const managedManifestPath = path.join(tempRoot, "compound-engineering", "compound-engineering-managed.json")
 
@@ -4339,7 +4787,7 @@ describe("syncToPi", () => {
   })
 
   test("removes the live unverified legacy compat extension on empty sync reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-legacy-compat-preserve-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-legacy-compat-preserve-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -4373,7 +4821,7 @@ describe("syncToPi", () => {
   })
 
   test("two-pass upgrade from legacy sync artifacts converges and removes only now-provable stale outputs", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-two-pass-upgrade-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-two-pass-upgrade-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -4417,7 +4865,7 @@ describe("syncToPi", () => {
   })
 
   test("unverified sync ownership does not delete shared mcporter config still needed by user state", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-partial-trust-shared-resource-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-partial-trust-shared-resource-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const layout = resolvePiLayout(tempRoot, "sync")
@@ -4463,7 +4911,7 @@ describe("syncToPi", () => {
   })
 
   test("preserves ambiguous legacy leftovers and warns instead of deleting heuristically", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-legacy-ambiguous-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-legacy-ambiguous-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -4508,7 +4956,7 @@ describe("syncToPi", () => {
   })
 
   test("removes orphaned legacy skill directories discovered from verified prior sync ownership", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-legacy-orphaned-skill-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-legacy-orphaned-skill-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -4534,7 +4982,7 @@ describe("syncToPi", () => {
   })
 
   test("warns and still writes a verified snapshot when legacy mcporter config is malformed", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-legacy-bad-mcporter-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-legacy-bad-mcporter-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -4567,7 +5015,7 @@ describe("syncToPi", () => {
   })
 
   test("preserves malformed unverified project mcporter config when sync wants to write MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-malformed-unverified-project-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-malformed-unverified-project-mcp-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
@@ -4607,7 +5055,7 @@ describe("syncToPi", () => {
   })
 
   test("restores prior sync managed state when stale skill cleanup fails after publication work", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-stale-cleanup-rollback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-stale-cleanup-rollback-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -4648,7 +5096,7 @@ describe("syncToPi", () => {
   })
 
   test("removes stale compat extension when Claude-home Pi sync becomes empty", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-compat-removal-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-compat-removal-"))
     const compatPath = path.join(tempRoot, "extensions", "compound-engineering-compat.ts")
 
     await syncToPi({
@@ -4679,7 +5127,7 @@ describe("syncToPi", () => {
   })
 
   test("removes the live ambiguous compat extension on empty sync while disabling advertising", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-compat-preserve-untrusted-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-compat-preserve-untrusted-"))
     const compatPath = path.join(tempRoot, "extensions", "compound-engineering-compat.ts")
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
 
@@ -4702,7 +5150,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime only uses bundled mcporter fallback when bundled manifest authorizes it", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-bundled-mcporter-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-bundled-mcporter-fallback-"))
     const bundledDir = path.join(tempRoot, "pi-resources", "compound-engineering")
     await fs.mkdir(bundledDir, { recursive: true })
     await fs.writeFile(path.join(bundledDir, "mcporter.json"), JSON.stringify({ mcpServers: { bundled: {} } }, null, 2))
@@ -4733,7 +5181,7 @@ describe("syncToPi", () => {
   })
 
   test("compat runtime does not trust bundled alias manifests by location alone", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-bundled-alias-untrusted-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-bundled-alias-untrusted-"))
     const bundledDir = path.join(tempRoot, "pi-resources", "compound-engineering")
     await fs.mkdir(bundledDir, { recursive: true })
     await fs.writeFile(path.join(bundledDir, "compound-engineering-managed.json"), JSON.stringify({
@@ -4754,7 +5202,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_list_capabilities reports bundled MCP availability when bundled fallback is authorized", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-capability-bundled-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-capability-bundled-mcp-"))
     const bundledDir = path.join(tempRoot, "pi-resources", "compound-engineering")
     await fs.mkdir(bundledDir, { recursive: true })
     await fs.writeFile(path.join(bundledDir, "mcporter.json"), JSON.stringify({ mcpServers: { bundled: {} } }, null, 2))
@@ -4796,7 +5244,7 @@ describe("syncToPi", () => {
   })
 
   test("ce_list_capabilities reports blocked project-sync provenance when unverified local MCP blocks fallback", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-capability-blocked-local-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-capability-blocked-local-mcp-"))
     const stateHome = path.join(tempRoot, "state-home")
     const fakeHome = path.join(tempRoot, "home")
     const projectRoot = path.join(tempRoot, "project")
@@ -4867,7 +5315,7 @@ describe("syncToPi", () => {
   })
 
   test("disabled local AGENTS state does not hide globally available runtime MCP discovery", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-global-capability-discovery-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-global-capability-discovery-"))
     const stateHome = path.join(tempRoot, "state-home")
     const globalRoot = path.join(stateHome, ".pi", "agent")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -4914,7 +5362,7 @@ describe("syncToPi", () => {
   })
 
   test("untrusted local mcporter config blocks lower-priority global fallback", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-untrusted-local-mcp-blocks-global-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-untrusted-local-mcp-blocks-global-"))
     const stateHome = path.join(tempRoot, "state-home")
     const globalRoot = path.join(stateHome, ".pi", "agent")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -4956,7 +5404,7 @@ describe("syncToPi", () => {
   })
 
   test("does not derive legacy skill-directory cleanup candidates from prompt artifacts", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-prompt-cleanup-scope-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-prompt-cleanup-scope-"))
     const layout = resolvePiLayout(tempRoot, "sync")
     const unrelatedSkillDir = path.join(layout.skillsDir, "plan-review")
 
@@ -4986,7 +5434,7 @@ describe("syncToPi", () => {
   })
 
   test("keeps compat extension when verified install-owned state still exists", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-compat-shared-root-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-compat-shared-root-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -5016,7 +5464,7 @@ describe("syncToPi", () => {
   })
 
   test("does not rewrite unchanged sync managed state or compat extension on no-op reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-noop-rerun-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-noop-rerun-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -5060,7 +5508,7 @@ describe("syncToPi", () => {
   })
 
   test("does not snapshot unchanged shared sync files on no-op reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-noop-shared-snapshots-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-noop-shared-snapshots-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -5096,7 +5544,7 @@ describe("syncToPi", () => {
   })
 
   test("does not create rollback temp dirs on no-op sync reruns for unchanged skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-noop-skill-rerun-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-noop-skill-rerun-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5111,6 +5559,14 @@ describe("syncToPi", () => {
           name: "docs-skill",
           sourceDir: sourceSkillDir,
           skillPath: path.join(sourceSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "forces later prompt write",
+          body: "before",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
         },
       ],
       mcpServers: {},
@@ -5128,7 +5584,7 @@ describe("syncToPi", () => {
   })
 
   test("does not snapshot unchanged synced skill directories on no-op reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-noop-skill-snapshot-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-noop-skill-snapshot-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5143,6 +5599,14 @@ describe("syncToPi", () => {
           name: "docs-skill",
           sourceDir: sourceSkillDir,
           skillPath: path.join(sourceSkillDir, "SKILL.md"),
+        },
+      ],
+      commands: [
+        {
+          name: "plan-review",
+          description: "forces later prompt write",
+          body: "before",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
         },
       ],
       mcpServers: {},
@@ -5163,8 +5627,8 @@ describe("syncToPi", () => {
     delete process.env.COMPOUND_ENGINEERING_HOME
   })
 
-  test("avoids whole-directory publication snapshots for incremental synced skill updates", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-incremental-skill-snapshot-"))
+  test("snapshots incremental synced skill directories before later outer transaction work", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-incremental-skill-snapshot-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5196,14 +5660,64 @@ describe("syncToPi", () => {
 
     await syncToPi(config, tempRoot)
 
-    expect(snapshottedPaths).not.toContain(targetSkillDir)
+    expect(snapshottedPaths).toContain(targetSkillDir)
     expect(await fs.readFile(path.join(targetSkillDir, "nested", "stable.txt"), "utf8")).toBe("updated\n")
 
     delete process.env.COMPOUND_ENGINEERING_HOME
   })
 
+  test("restores the prior synced skill tree when a later AGENTS write fails after an incremental skill update", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-incremental-skill-rollback-"))
+    const stateHome = path.join(tempRoot, "state-home")
+    const sourceSkillDir = path.join(tempRoot, "claude-skill")
+    process.env.COMPOUND_ENGINEERING_HOME = stateHome
+
+    await fs.mkdir(path.join(sourceSkillDir, "nested"), { recursive: true })
+    await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "---\nname: docs-skill\n---\n\nBody\n")
+    await fs.writeFile(path.join(sourceSkillDir, "nested", "stable.txt"), "stable\n")
+
+    const config: ClaudeHomeConfig = {
+      skills: [
+        {
+          name: "docs-skill",
+          sourceDir: sourceSkillDir,
+          skillPath: path.join(sourceSkillDir, "SKILL.md"),
+        },
+      ],
+      mcpServers: {},
+    }
+
+    await syncToPi(config, tempRoot)
+
+    const layout = resolvePiLayout(tempRoot, "sync")
+    const targetSkillFile = path.join(layout.skillsDir, "docs-skill", "nested", "stable.txt")
+    await fs.writeFile(path.join(sourceSkillDir, "nested", "stable.txt"), "updated\n")
+    const promptPath = path.join(layout.promptsDir, "plan-review.md")
+    const failingConfig: ClaudeHomeConfig = {
+      ...config,
+      commands: [
+        {
+          name: "plan-review",
+          description: "forces later prompt write",
+          body: "after",
+          sourcePath: path.join(tempRoot, "commands", "plan-review.md"),
+        },
+      ],
+    }
+    setAtomicWriteFailureHookForTests((filePath, stage) => {
+      if (filePath === promptPath && stage === "beforeRename") {
+        throw new Error("simulated prompt failure")
+      }
+    })
+
+    await expect(syncToPi(failingConfig, tempRoot)).rejects.toThrow("simulated prompt failure")
+    expect(await fs.readFile(targetSkillFile, "utf8")).toBe("stable\n")
+
+    delete process.env.COMPOUND_ENGINEERING_HOME
+  })
+
   test("does not perform full deep compare for unchanged synced skill directories on stable reruns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-skill-fast-path-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skill-fast-path-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5227,15 +5741,16 @@ describe("syncToPi", () => {
     await syncToPi(config, tempRoot)
 
     let fullCompareCalls = 0
-    setPiSkillFullCompareHookForTests(() => {
-      fullCompareCalls += 1
-    })
     let sourceFingerprintCalls = 0
-    setPiSkillSourceFingerprintHookForTests(() => {
-      sourceFingerprintCalls += 1
-    })
 
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      onFullCompare: () => {
+        fullCompareCalls += 1
+      },
+      onSourceFingerprint: () => {
+        sourceFingerprintCalls += 1
+      },
+    })
 
     expect(fullCompareCalls).toBe(0)
     expect(sourceFingerprintCalls).toBe(0)
@@ -5244,7 +5759,7 @@ describe("syncToPi", () => {
   })
 
   test("falls back to full deep compare when a synced skill tree changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-skill-fast-path-fallback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-skill-fast-path-fallback-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5270,15 +5785,16 @@ describe("syncToPi", () => {
     await fs.writeFile(path.join(sourceSkillDir, "nested", "stable.txt"), "changed\n")
 
     let fullCompareCalls = 0
-    setPiSkillFullCompareHookForTests(() => {
-      fullCompareCalls += 1
-    })
     let sourceFingerprintCalls = 0
-    setPiSkillSourceFingerprintHookForTests(() => {
-      sourceFingerprintCalls += 1
-    })
 
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      onFullCompare: () => {
+        fullCompareCalls += 1
+      },
+      onSourceFingerprint: () => {
+        sourceFingerprintCalls += 1
+      },
+    })
 
     expect(fullCompareCalls).toBeGreaterThan(0)
     expect(sourceFingerprintCalls).toBeGreaterThan(0)
@@ -5287,7 +5803,7 @@ describe("syncToPi", () => {
   })
 
   test("invalidates synced skill fast paths when the Pi policy fingerprint changes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-policy-fast-path-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-policy-fast-path-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5307,21 +5823,21 @@ describe("syncToPi", () => {
       mcpServers: {},
     }
 
-    setPiPolicyFingerprintForTests("policy-v1")
-    await syncToPi(config, tempRoot)
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, { policyFingerprintOverride: "policy-v1" })
+    await syncToPi(config, tempRoot, { policyFingerprintOverride: "policy-v1" })
 
     let fullCompareCalls = 0
     let sourceFingerprintCalls = 0
-    setPiSkillFullCompareHookForTests(() => {
-      fullCompareCalls += 1
-    })
-    setPiSkillSourceFingerprintHookForTests(() => {
-      sourceFingerprintCalls += 1
-    })
 
-    setPiPolicyFingerprintForTests("policy-v2")
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      policyFingerprintOverride: "policy-v2",
+      onFullCompare: () => {
+        fullCompareCalls += 1
+      },
+      onSourceFingerprint: () => {
+        sourceFingerprintCalls += 1
+      },
+    })
 
     expect(fullCompareCalls).toBeGreaterThan(0)
     expect(sourceFingerprintCalls).toBeGreaterThan(0)
@@ -5330,7 +5846,7 @@ describe("syncToPi", () => {
   })
 
   test("invalidates synced skill fast paths when install name maps change rendered output", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-render-fast-path-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-render-fast-path-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5362,9 +5878,6 @@ describe("syncToPi", () => {
     await syncToPi(config, tempRoot)
 
     let fullCompareCalls = 0
-    setPiSkillFullCompareHookForTests(() => {
-      fullCompareCalls += 1
-    })
 
     await seedVerifiedProjectInstallNameMaps(tempRoot, {
       skills: {
@@ -5372,7 +5885,11 @@ describe("syncToPi", () => {
       },
     })
 
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      onFullCompare: () => {
+        fullCompareCalls += 1
+      },
+    })
 
     const syncedSkill = await fs.readFile(path.join(tempRoot, "skills", "docs-skill", "SKILL.md"), "utf8")
     expect(syncedSkill).toContain("/skill:ce-plan-v2")
@@ -5383,7 +5900,7 @@ describe("syncToPi", () => {
   })
 
   test("reuses one deep source analysis pass when a synced skill rerun misses the fast path", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-source-analysis-collapse-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-source-analysis-collapse-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5403,17 +5920,17 @@ describe("syncToPi", () => {
       mcpServers: {},
     }
 
-    setPiPolicyFingerprintForTests("policy-v1")
-    await syncToPi(config, tempRoot)
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, { policyFingerprintOverride: "policy-v1" })
+    await syncToPi(config, tempRoot, { policyFingerprintOverride: "policy-v1" })
 
     let sourceAnalysisCalls = 0
-    setPiSkillSourceAnalysisHookForTests(() => {
-      sourceAnalysisCalls += 1
-    })
 
-    setPiPolicyFingerprintForTests("policy-v2")
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      policyFingerprintOverride: "policy-v2",
+      onSourceAnalysis: () => {
+        sourceAnalysisCalls += 1
+      },
+    })
 
     expect(sourceAnalysisCalls).toBe(1)
 
@@ -5421,7 +5938,7 @@ describe("syncToPi", () => {
   })
 
   test("falls back to one planning pass when the synced skill fast-path record is malformed", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-malformed-fast-path-record-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-malformed-fast-path-record-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5450,14 +5967,15 @@ describe("syncToPi", () => {
 
     let fullCompareCalls = 0
     let sourceAnalysisCalls = 0
-    setPiSkillFullCompareHookForTests(() => {
-      fullCompareCalls += 1
-    })
-    setPiSkillSourceAnalysisHookForTests(() => {
-      sourceAnalysisCalls += 1
-    })
 
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      onFullCompare: () => {
+        fullCompareCalls += 1
+      },
+      onSourceAnalysis: () => {
+        sourceAnalysisCalls += 1
+      },
+    })
 
     expect(fullCompareCalls).toBe(1)
     expect(sourceAnalysisCalls).toBe(1)
@@ -5466,7 +5984,7 @@ describe("syncToPi", () => {
   })
 
   test("repairs drifted target content even when the source skill tree is unchanged", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-target-drift-repair-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-target-drift-repair-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5490,11 +6008,12 @@ describe("syncToPi", () => {
     await fs.writeFile(targetSkillPath, "drifted\n")
 
     let fullCompareCalls = 0
-    setPiSkillFullCompareHookForTests(() => {
-      fullCompareCalls += 1
-    })
 
-    await syncToPi(config, tempRoot)
+    await syncToPi(config, tempRoot, {
+      onFullCompare: () => {
+        fullCompareCalls += 1
+      },
+    })
 
     expect(await fs.readFile(targetSkillPath, "utf8")).toContain("name: docs-skill")
     expect(fullCompareCalls).toBeGreaterThan(0)
@@ -5503,7 +6022,7 @@ describe("syncToPi", () => {
   })
 
   test("replace-path synced skill writes do not immediately rebuild fast-path analysis state", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-replace-no-postcopy-analysis-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-replace-no-postcopy-analysis-"))
     const stateHome = path.join(tempRoot, "state-home")
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5512,9 +6031,6 @@ describe("syncToPi", () => {
     await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "---\nname: docs-skill\n---\n\nBody\n")
 
     let sourceAnalysisCalls = 0
-    setPiSkillSourceAnalysisHookForTests(() => {
-      sourceAnalysisCalls += 1
-    })
 
     await syncToPi({
       skills: [
@@ -5525,7 +6041,11 @@ describe("syncToPi", () => {
         },
       ],
       mcpServers: {},
-    }, tempRoot)
+    }, tempRoot, {
+      onSourceAnalysis: () => {
+        sourceAnalysisCalls += 1
+      },
+    })
 
     expect(sourceAnalysisCalls).toBe(0)
 
@@ -5533,7 +6053,7 @@ describe("syncToPi", () => {
   })
 
   test("rejects symlinked compat extension targets during sync writes", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-compat-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-compat-symlink-"))
     const externalCompat = path.join(tempRoot, "external-compat.ts")
     const compatPath = path.join(tempRoot, "extensions", "compound-engineering-compat.ts")
 
@@ -5558,7 +6078,7 @@ describe("syncToPi", () => {
   })
 
   test("restores prior mcporter config when publication fails after merge begins", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-mcporter-rollback-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-mcporter-rollback-"))
     const configPath = path.join(tempRoot, "compound-engineering", "mcporter.json")
 
     await fs.mkdir(path.dirname(configPath), { recursive: true })
@@ -5582,7 +6102,7 @@ describe("syncToPi", () => {
   })
 
   test("keeps the prior verified sync state when mcporter publication fails", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-mcporter-trust-boundary-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-mcporter-trust-boundary-"))
     const stateHome = path.join(tempRoot, "state-home")
     const configPath = path.join(tempRoot, "compound-engineering", "mcporter.json")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
@@ -5632,7 +6152,7 @@ describe("syncToPi", () => {
   })
 
   test("removes newly written sync prompts when managed state commit fails", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-manifest-rollback-prompt-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-manifest-rollback-prompt-"))
     const stateHome = path.join(tempRoot, "state-home")
     process.env.COMPOUND_ENGINEERING_HOME = stateHome
 
@@ -5679,7 +6199,7 @@ describe("syncToPi", () => {
   })
 
   test("skips dangling symlinked file assets during Pi sync materialization", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-dangling-symlink-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-dangling-symlink-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
     const missingAssetPath = path.join(tempRoot, "missing.txt")
 
@@ -5724,7 +6244,7 @@ describe("syncToPi", () => {
   })
 
   test("rejects cyclic directory symlinks during Pi sync materialization", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-pi-cycle-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-pi-cycle-"))
     const sourceSkillDir = path.join(tempRoot, "claude-skill")
 
     await fs.mkdir(sourceSkillDir, { recursive: true })

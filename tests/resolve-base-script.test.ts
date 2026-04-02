@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import { pathToFileURL } from "url"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 const gitEnv = {
   ...process.env,
@@ -62,7 +64,7 @@ async function runGit(args: string[], cwd: string, env?: NodeJS.ProcessEnv): Pro
 }
 
 async function initRepo(initialBranch = "main"): Promise<string> {
-  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "resolve-base-repo-"))
+  const repoRoot = await fs.mkdtemp(path.join(tmpdir, "resolve-base-repo-"))
   await runGit(["init", "-b", initialBranch], repoRoot)
   return repoRoot
 }
@@ -87,7 +89,7 @@ async function writeExecutable(filePath: string, content: string): Promise<void>
 }
 
 async function createStubBin(mode: "gh-fails" | "pr-metadata"): Promise<string> {
-  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "resolve-base-bin-"))
+  const binDir = await fs.mkdtemp(path.join(tmpdir, "resolve-base-bin-"))
 
   if (mode === "gh-fails") {
     await writeExecutable(path.join(binDir, "gh"), "#!/usr/bin/env bash\nexit 1\n")
@@ -197,14 +199,14 @@ describe("resolve-base.sh", () => {
     const featureSha = await commitFile(seedRepo, "feature.txt", "feature\n", "feature change")
     await runGit(["checkout", "main"], seedRepo)
 
-    const bareRepo = await fs.mkdtemp(path.join(os.tmpdir(), "resolve-base-remote-"))
+    const bareRepo = await fs.mkdtemp(path.join(tmpdir, "resolve-base-remote-"))
     await runGit(["init", "--bare", bareRepo], seedRepo)
     const bareUrl = pathToFileURL(bareRepo).toString()
     await runGit(["remote", "add", "origin", bareUrl], seedRepo)
     await runGit(["push", "origin", "main", "feature"], seedRepo)
 
-    const checkoutRoot = await fs.mkdtemp(path.join(os.tmpdir(), "resolve-base-checkout-"))
-    await runCommand(["git", "clone", "--depth", "1", bareUrl, checkoutRoot], os.tmpdir(), gitEnv)
+    const checkoutRoot = await fs.mkdtemp(path.join(tmpdir, "resolve-base-checkout-"))
+    await runCommand(["git", "clone", "--depth", "1", bareUrl, checkoutRoot], tmpdir, gitEnv)
     await runGit(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], checkoutRoot)
     await runGit(
       ["fetch", "--depth", "1", "origin", "main:refs/remotes/origin/main", "feature:refs/remotes/origin/feature"],
@@ -244,7 +246,7 @@ describe("resolve-base.sh", () => {
     await commitFile(forkSeed, "history.txt", "a\n", "initial")
     const forkMainSha = await commitFile(forkSeed, "fork.txt", "fork\n", "fork main diverges")
 
-    const remotesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "resolve-base-remotes-"))
+    const remotesRoot = await fs.mkdtemp(path.join(tmpdir, "resolve-base-remotes-"))
     const upstreamBare = path.join(
       remotesRoot,
       "github.com",
@@ -264,11 +266,11 @@ describe("resolve-base.sh", () => {
     await runGit(["remote", "add", "origin", forkUrl], forkSeed)
     await runGit(["push", "origin", "main"], forkSeed)
 
-    const checkoutParent = await fs.mkdtemp(path.join(os.tmpdir(), "resolve-base-pr-shallow-"))
+    const checkoutParent = await fs.mkdtemp(path.join(tmpdir, "resolve-base-pr-shallow-"))
     const checkoutRoot = path.join(checkoutParent, "checkout")
     await runCommand(
       ["git", "clone", "--depth", "1", "--branch", "feature", upstreamUrl, checkoutRoot],
-      os.tmpdir(),
+      tmpdir,
       gitEnv,
     )
     await runGit(["checkout", "--detach", featureSha], checkoutRoot)

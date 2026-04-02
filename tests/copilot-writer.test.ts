@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writeCopilotBundle } from "../src/targets/copilot"
 import type { CopilotBundle } from "../src/types/copilot"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -16,7 +18,7 @@ async function exists(filePath: string): Promise<boolean> {
 
 describe("writeCopilotBundle", () => {
   test("writes agents, generated skills, copied skills, and MCP config", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-test-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-test-"))
     const bundle: CopilotBundle = {
       agents: [
         {
@@ -72,7 +74,7 @@ describe("writeCopilotBundle", () => {
   })
 
   test("agents use .agent.md file extension", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-ext-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-ext-"))
     const bundle: CopilotBundle = {
       agents: [{ name: "test-agent", content: "Agent content" }],
       generatedSkills: [],
@@ -87,7 +89,7 @@ describe("writeCopilotBundle", () => {
   })
 
   test("writes directly into .github output root without double-nesting", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-home-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-home-"))
     const githubRoot = path.join(tempRoot, ".github")
     const bundle: CopilotBundle = {
       agents: [{ name: "reviewer", content: "Reviewer agent content" }],
@@ -104,7 +106,7 @@ describe("writeCopilotBundle", () => {
   })
 
   test("handles empty bundles gracefully", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-empty-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-empty-"))
     const bundle: CopilotBundle = {
       agents: [],
       generatedSkills: [],
@@ -116,7 +118,7 @@ describe("writeCopilotBundle", () => {
   })
 
   test("writes multiple agents as separate .agent.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-multi-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-multi-"))
     const githubRoot = path.join(tempRoot, ".github")
     const bundle: CopilotBundle = {
       agents: [
@@ -136,7 +138,7 @@ describe("writeCopilotBundle", () => {
   })
 
   test("backs up existing copilot-mcp-config.json before overwriting", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-backup-"))
     const githubRoot = path.join(tempRoot, ".github")
     await fs.mkdir(githubRoot, { recursive: true })
 
@@ -166,7 +168,7 @@ describe("writeCopilotBundle", () => {
   })
 
   test("transforms Task calls in copied SKILL.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-skill-transform-"))
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -204,7 +206,7 @@ Run these research agents:
   })
 
   test("removes stale plugin MCP servers on re-install", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-converge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-converge-"))
     const githubRoot = path.join(tempRoot, ".github")
 
     const bundle1: CopilotBundle = {
@@ -229,7 +231,7 @@ Run these research agents:
   })
 
   test("cleans up all plugin MCP servers when bundle has none", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-zero-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-zero-"))
     const githubRoot = path.join(tempRoot, ".github")
 
     const bundle1: CopilotBundle = {
@@ -254,7 +256,7 @@ Run these research agents:
   })
 
   test("does not prune untracked user config when plugin has zero MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-untracked-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-untracked-"))
     const githubRoot = path.join(tempRoot, ".github")
     await fs.mkdir(githubRoot, { recursive: true })
 
@@ -279,7 +281,7 @@ Run these research agents:
   })
 
   test("preserves user servers across zero-MCP-then-MCP round trip", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-roundtrip-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-roundtrip-"))
     const githubRoot = path.join(tempRoot, ".github")
     const mcpPath = path.join(githubRoot, "copilot-mcp-config.json")
 
@@ -312,7 +314,7 @@ Run these research agents:
   })
 
   test("preserves user-added MCP servers across re-installs", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-user-mcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-user-mcp-"))
     const githubRoot = path.join(tempRoot, ".github")
     await fs.mkdir(githubRoot, { recursive: true })
 
@@ -340,7 +342,7 @@ Run these research agents:
   })
 
   test("prunes stale servers from legacy config without tracking key", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-legacy-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-legacy-"))
     const githubRoot = path.join(tempRoot, ".github")
     await fs.mkdir(githubRoot, { recursive: true })
 
@@ -372,7 +374,7 @@ Run these research agents:
   })
 
   test("creates skill directories with SKILL.md", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "copilot-genskill-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "copilot-genskill-"))
     const bundle: CopilotBundle = {
       agents: [],
       generatedSkills: [

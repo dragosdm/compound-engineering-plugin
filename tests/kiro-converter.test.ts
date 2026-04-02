@@ -1,10 +1,13 @@
 import { mkdtempSync, rmSync, writeFileSync } from "fs"
 import os from "os"
+import { realpathSync } from "fs"
 import path from "path"
 import { describe, expect, test } from "bun:test"
 import { convertClaudeToKiro, transformContentForKiro } from "../src/converters/claude-to-kiro"
 import { parseFrontmatter } from "../src/utils/frontmatter"
 import type { ClaudePlugin } from "../src/types/claude"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 const fixturePlugin: ClaudePlugin = {
   root: "/tmp/plugin",
@@ -291,7 +294,7 @@ describe("convertClaudeToKiro", () => {
   })
 
   test("steering file prefers AGENTS.md over CLAUDE.md", () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), "kiro-steering-"))
+    const root = mkdtempSync(path.join(tmpdir, "kiro-steering-"))
     writeFileSync(path.join(root, "AGENTS.md"), "# AGENTS\nUse AGENTS instructions.")
     writeFileSync(path.join(root, "CLAUDE.md"), "# CLAUDE\nUse CLAUDE instructions.")
 

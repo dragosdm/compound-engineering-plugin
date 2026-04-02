@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { syncToCopilot } from "../src/sync/copilot"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToCopilot", () => {
   test("symlinks skills to .github/skills/", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -29,7 +31,7 @@ describe("syncToCopilot", () => {
   })
 
   test("converts personal commands into Copilot skills", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-cmd-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-cmd-"))
 
     const config: ClaudeHomeConfig = {
       skills: [],
@@ -57,7 +59,7 @@ describe("syncToCopilot", () => {
   })
 
   test("skips skills with invalid names", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-invalid-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-invalid-"))
 
     const config: ClaudeHomeConfig = {
       skills: [
@@ -78,7 +80,7 @@ describe("syncToCopilot", () => {
   })
 
   test("merges MCP config with existing file", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-merge-"))
     const mcpPath = path.join(tempRoot, "mcp-config.json")
 
     await fs.writeFile(
@@ -109,7 +111,7 @@ describe("syncToCopilot", () => {
   })
 
   test("transforms MCP env var names to COPILOT_MCP_ prefix", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-env-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-env-"))
 
     const config: ClaudeHomeConfig = {
       skills: [],
@@ -136,7 +138,7 @@ describe("syncToCopilot", () => {
   })
 
   test("writes MCP config with restricted permissions", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-perms-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-perms-"))
 
     const config: ClaudeHomeConfig = {
       skills: [],
@@ -155,7 +157,7 @@ describe("syncToCopilot", () => {
   })
 
   test("does not write MCP config when no MCP servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-nomcp-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-nomcp-"))
     const fixtureSkillDir = path.join(import.meta.dir, "fixtures", "sample-plugin", "skills", "skill-one")
 
     const config: ClaudeHomeConfig = {
@@ -176,7 +178,7 @@ describe("syncToCopilot", () => {
   })
 
   test("preserves explicit SSE transport for legacy remote servers", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-copilot-sse-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-copilot-sse-"))
 
     const config: ClaudeHomeConfig = {
       skills: [],

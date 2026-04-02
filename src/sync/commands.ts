@@ -13,7 +13,7 @@ import { convertClaudeToPi } from "../converters/claude-to-pi"
 import { convertClaudeToQwen, type ClaudeToQwenOptions } from "../converters/claude-to-qwen"
 import { convertClaudeToWindsurf } from "../converters/claude-to-windsurf"
 import { writeWindsurfBundle } from "../targets/windsurf"
-import type { PiBundle, PiManagedArtifact, PiManagedManifest } from "../types/pi"
+import type { PiBundle, PiManagedArtifact, PiManagedManifest, PiSyncHooks } from "../types/pi"
 import { resolvePiLayout } from "../utils/pi-layout"
 import { createManagedArtifact } from "../utils/pi-managed"
 import { classifyUnsupportedPiSyncStatus, isUnsupportedPiSyncArtifactError } from "./pi-artifact-status"
@@ -32,12 +32,6 @@ export type SyncPiCommandResult = {
     skills: string[]
     prompts: string[]
   }
-}
-
-let piSyncCommandConversionHookForTests: (() => void | Promise<void>) | null = null
-
-export function setPiSyncCommandConversionHookForTests(hook: (() => void | Promise<void>) | null): void {
-  piSyncCommandConversionHookForTests = hook
 }
 
 const HOME_SYNC_PLUGIN_ROOT = path.join(process.cwd(), ".compound-sync-home")
@@ -113,6 +107,7 @@ export async function syncPiCommands(
   hooks?: {
     onBeforeMutate?: (targetPath: string) => void | Promise<void>
   },
+  piSyncHooks?: PiSyncHooks,
 ): Promise<SyncPiCommandResult[]> {
   const layout = resolvePiLayout(outputRoot, "sync")
   let syncPrompts: SyncPiCommandResult[] = []
@@ -120,7 +115,7 @@ export async function syncPiCommands(
 
   if (commands.length > 0) {
     try {
-      const bundle = await convertPiSyncCommandBundle({ ...config, commands }, extraNameMaps)
+      const bundle = await convertPiSyncCommandBundle({ ...config, commands }, extraNameMaps, piSyncHooks)
       const promptsBySourceName = new Map(bundle.prompts.map((prompt) => [prompt.sourceName ?? prompt.name, prompt]))
 
       for (const command of commands) {
@@ -152,7 +147,7 @@ export async function syncPiCommands(
     for (const command of commands) {
       let bundle: PiBundle
       try {
-        bundle = await convertPiSyncCommandBundle({ ...config, commands: [command] }, extraNameMaps)
+        bundle = await convertPiSyncCommandBundle({ ...config, commands: [command] }, extraNameMaps, piSyncHooks)
       } catch (error) {
         if (!isUnsupportedPiSyncArtifactError(error)) {
           throw error
@@ -191,8 +186,9 @@ export async function syncPiCommands(
 async function convertPiSyncCommandBundle(
   config: ClaudeHomeConfig,
   extraNameMaps?: PiManagedManifest["nameMaps"],
+  piSyncHooks?: PiSyncHooks,
 ): Promise<PiBundle> {
-  await piSyncCommandConversionHookForTests?.()
+  await piSyncHooks?.onCommandConversion?.()
   return convertClaudeToPi(buildClaudeHomePlugin({ ...config, skills: [] }), {
     ...DEFAULT_SYNC_OPTIONS,
     extraNameMaps,

@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import { writeOpenClawBundle } from "../src/targets/openclaw"
 import type { OpenClawBundle } from "../src/types/openclaw"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("writeOpenClawBundle", () => {
   test("writes openclaw.plugin.json with a configSchema", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-writer-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "openclaw-writer-"))
     const bundle: OpenClawBundle = {
       manifest: {
         id: "compound-engineering",

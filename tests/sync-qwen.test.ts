@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import os from "os"
 import path from "path"
 import type { ClaudeHomeConfig } from "../src/parsers/claude-home"
 import { syncToQwen } from "../src/sync/qwen"
 
+const tmpdir = realpathSync(os.tmpdir())
+
 describe("syncToQwen", () => {
   test("defaults ambiguous remote URLs to httpUrl and warns", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-qwen-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-qwen-"))
     const warnings: string[] = []
     const originalWarn = console.warn
     console.warn = (message?: unknown) => {
@@ -40,7 +42,7 @@ describe("syncToQwen", () => {
   })
 
   test("uses legacy url only for explicit SSE servers and preserves existing settings", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "sync-qwen-sse-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "sync-qwen-sse-"))
     await fs.writeFile(
       path.join(tempRoot, "settings.json"),
       JSON.stringify({

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -38,7 +40,7 @@ const projectRoot = path.join(import.meta.dir, "..")
 const fixtureRoot = path.join(import.meta.dir, "fixtures", "sample-plugin")
 
 async function createTestRepo(): Promise<string> {
-  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-repo-"))
+  const repoRoot = await fs.mkdtemp(path.join(tmpdir, "plugin-path-repo-"))
   const pluginRoot = path.join(repoRoot, "plugins", "compound-engineering")
   await fs.mkdir(path.dirname(pluginRoot), { recursive: true })
   await fs.cp(fixtureRoot, pluginRoot, { recursive: true })
@@ -55,7 +57,7 @@ describe("plugin-path", () => {
     await runGit(["checkout", "-b", "feat/test-branch"], repoRoot, gitEnv)
     await runGit(["checkout", "main"], repoRoot, gitEnv)
 
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-home-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-home-"))
 
     const proc = Bun.spawn([
       "bun",
@@ -97,7 +99,7 @@ describe("plugin-path", () => {
     await runGit(["checkout", "-b", "feat/deep/nested/branch"], repoRoot, gitEnv)
     await runGit(["checkout", "main"], repoRoot, gitEnv)
 
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-sanitize-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-sanitize-"))
 
     const proc = Bun.spawn([
       "bun",
@@ -142,7 +144,7 @@ describe("plugin-path", () => {
 
     await runGit(["checkout", "main"], repoRoot, gitEnv)
 
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-update-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-update-"))
     const cacheDir = path.join(tempHome, ".cache", "compound-engineering", "branches", "compound-engineering-feat~update-test")
 
     const runPluginPath = async () => {
@@ -194,7 +196,7 @@ describe("plugin-path", () => {
 
   test("fails with a clear error for a nonexistent branch", async () => {
     const repoRoot = await createTestRepo()
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-noexist-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-noexist-"))
 
     const proc = Bun.spawn([
       "bun",
@@ -226,7 +228,7 @@ describe("plugin-path", () => {
     await runGit(["checkout", "-b", "feat-foo/bar"], repoRoot, gitEnv)
     await runGit(["checkout", "main"], repoRoot, gitEnv)
 
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-collision-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-collision-"))
 
     const runForBranch = async (branch: string) => {
       const proc = Bun.spawn([
@@ -266,7 +268,7 @@ describe("plugin-path", () => {
 
   test("fails when plugin name does not exist in the repo", async () => {
     const repoRoot = await createTestRepo()
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-noplugin-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-noplugin-"))
 
     const proc = Bun.spawn([
       "bun",
@@ -295,7 +297,7 @@ describe("plugin-path", () => {
 
   test("rejects unsafe plugin names before deriving checkout paths", async () => {
     const repoRoot = await createTestRepo()
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-unsafe-plugin-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-unsafe-plugin-"))
 
     const proc = Bun.spawn([
       "bun",
@@ -324,7 +326,7 @@ describe("plugin-path", () => {
 
   test("rejects symlinked cache checkouts before running git", async () => {
     const repoRoot = await createTestRepo()
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "plugin-path-symlink-cache-"))
+    const tempHome = await fs.mkdtemp(path.join(tmpdir, "plugin-path-symlink-cache-"))
     const cacheRoot = path.join(tempHome, ".cache", "compound-engineering", "branches")
     const externalRoot = path.join(tempHome, "external-checkout")
     const symlinkedCheckout = path.join(cacheRoot, "compound-engineering-main")

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { promises as fs } from "fs"
+import { promises as fs, realpathSync } from "fs"
 import path from "path"
 import os from "os"
 import { writeGeminiBundle } from "../src/targets/gemini"
 import type { GeminiBundle } from "../src/types/gemini"
+
+const tmpdir = realpathSync(os.tmpdir())
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -16,7 +18,7 @@ async function exists(filePath: string): Promise<boolean> {
 
 describe("writeGeminiBundle", () => {
   test("writes skills, commands, and settings.json", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-test-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-test-"))
     const bundle: GeminiBundle = {
       generatedSkills: [
         {
@@ -67,7 +69,7 @@ describe("writeGeminiBundle", () => {
   })
 
   test("transforms Task calls in copied SKILL.md files", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-skill-transform-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-skill-transform-"))
     const sourceSkillDir = path.join(tempRoot, "source-skill")
     await fs.mkdir(sourceSkillDir, { recursive: true })
     await fs.writeFile(
@@ -105,7 +107,7 @@ Run these research agents:
   })
 
   test("namespaced commands create subdirectories", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-ns-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-ns-"))
     const bundle: GeminiBundle = {
       generatedSkills: [],
       skillDirs: [],
@@ -123,7 +125,7 @@ Run these research agents:
   })
 
   test("does not double-nest when output root is .gemini", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-home-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-home-"))
     const geminiRoot = path.join(tempRoot, ".gemini")
     const bundle: GeminiBundle = {
       generatedSkills: [
@@ -144,7 +146,7 @@ Run these research agents:
   })
 
   test("handles empty bundles gracefully", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-empty-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-empty-"))
     const bundle: GeminiBundle = {
       generatedSkills: [],
       skillDirs: [],
@@ -156,7 +158,7 @@ Run these research agents:
   })
 
   test("backs up existing settings.json before overwrite", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-backup-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-backup-"))
     const geminiRoot = path.join(tempRoot, ".gemini")
     await fs.mkdir(geminiRoot, { recursive: true })
 
@@ -186,7 +188,7 @@ Run these research agents:
   })
 
   test("merges mcpServers into existing settings.json without clobbering other keys", async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "gemini-merge-"))
+    const tempRoot = await fs.mkdtemp(path.join(tmpdir, "gemini-merge-"))
     const geminiRoot = path.join(tempRoot, ".gemini")
     await fs.mkdir(geminiRoot, { recursive: true })
 
