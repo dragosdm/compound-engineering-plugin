@@ -9,6 +9,54 @@ All notable changes to the compound-engineering plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.62.0](https://github.com/dragosdm/compound-engineering-plugin/compare/compound-engineering-v2.61.0...compound-engineering-v2.62.0) (2026-04-02)
+
+
+### Features
+
+* **ce-brainstorm:** add conditional visual aids to requirements documents ([#437](https://github.com/dragosdm/compound-engineering-plugin/issues/437)) ([bd02ca7](https://github.com/dragosdm/compound-engineering-plugin/commit/bd02ca7df04cf2c1c6301de3774e99d283d3d3ca))
+* **ce-compound:** add discoverability check for docs/solutions/ in instruction files ([#456](https://github.com/dragosdm/compound-engineering-plugin/issues/456)) ([5ac8a2c](https://github.com/dragosdm/compound-engineering-plugin/commit/5ac8a2c2c8c258458307e476d6693cc387deb27e))
+* **ce-compound:** add track-based schema for bug vs knowledge learnings ([#445](https://github.com/dragosdm/compound-engineering-plugin/issues/445)) ([739109c](https://github.com/dragosdm/compound-engineering-plugin/commit/739109c03ccd45474331625f35730924d17f63ef))
+* **ce-plan:** add conditional visual aids to plan documents ([#440](https://github.com/dragosdm/compound-engineering-plugin/issues/440)) ([4c7f51f](https://github.com/dragosdm/compound-engineering-plugin/commit/4c7f51f35bae56dd9c9dc2653372910c39b8b504))
+* **ce-plan:** add interactive deepening mode for on-demand plan strengthening ([#443](https://github.com/dragosdm/compound-engineering-plugin/issues/443)) ([ca78057](https://github.com/dragosdm/compound-engineering-plugin/commit/ca78057241ec64f36c562e3720a388420bdb347f))
+* **ce-plan:** reduce token usage by extracting conditional references ([#489](https://github.com/dragosdm/compound-engineering-plugin/issues/489)) ([fd562a0](https://github.com/dragosdm/compound-engineering-plugin/commit/fd562a0d0255d203d40fd53bb10d03a284a3c0e5))
+* **ce-review:** add headless mode for programmatic callers ([#430](https://github.com/dragosdm/compound-engineering-plugin/issues/430)) ([3706a97](https://github.com/dragosdm/compound-engineering-plugin/commit/3706a9764b6e73b7a155771956646ddef73f04a5))
+* **ce-review:** enforce table format, require question tool, fix autofix_class calibration ([#454](https://github.com/dragosdm/compound-engineering-plugin/issues/454)) ([847ce3f](https://github.com/dragosdm/compound-engineering-plugin/commit/847ce3f156a5cdf75667d9802e95d68e6b3c53a4))
+* **ce-review:** improve signal-to-noise with confidence rubric, FP suppression, and intent verification ([#434](https://github.com/dragosdm/compound-engineering-plugin/issues/434)) ([03f5aa6](https://github.com/dragosdm/compound-engineering-plugin/commit/03f5aa65b098e2ab8e25670594e0f554ea3cafbe))
+* **ce-work:** accept bare prompts and add test discovery ([#423](https://github.com/dragosdm/compound-engineering-plugin/issues/423)) ([6dabae6](https://github.com/dragosdm/compound-engineering-plugin/commit/6dabae6683fb2c37dc47616f172835eacc105d11))
+* **ce-work:** suggest branch rename when worktree name is meaningless ([#451](https://github.com/dragosdm/compound-engineering-plugin/issues/451)) ([e872e15](https://github.com/dragosdm/compound-engineering-plugin/commit/e872e15efa5514dcfea84a1a9e276bad3290cbc3))
+* **cli-agent-readiness-reviewer:** add smart output defaults criterion ([#448](https://github.com/dragosdm/compound-engineering-plugin/issues/448)) ([a01a8aa](https://github.com/dragosdm/compound-engineering-plugin/commit/a01a8aa0d29474c031a5b403f4f9bfc42a23ad78))
+* **cli-readiness-reviewer:** add conditional review persona for CLI agent readiness ([#471](https://github.com/dragosdm/compound-engineering-plugin/issues/471)) ([c56c766](https://github.com/dragosdm/compound-engineering-plugin/commit/c56c7667dfe45cfd149cf2fbfeddb35e96f8d559))
+* **document-review:** add headless mode for programmatic callers ([#425](https://github.com/dragosdm/compound-engineering-plugin/issues/425)) ([4e4a656](https://github.com/dragosdm/compound-engineering-plugin/commit/4e4a6563b4aa7375e9d1c54bd73442f3b675f100))
+* **document-review:** collapse batch_confirm tier into auto ([#432](https://github.com/dragosdm/compound-engineering-plugin/issues/432)) ([0f5715d](https://github.com/dragosdm/compound-engineering-plugin/commit/0f5715d562fffc626ddfde7bd0e1652143710a44))
+* **git-commit-push-pr:** add conditional visual aids to PR descriptions ([#444](https://github.com/dragosdm/compound-engineering-plugin/issues/444)) ([44e3e77](https://github.com/dragosdm/compound-engineering-plugin/commit/44e3e77dc039d31a86194b0254e4e92839d9d5e9))
+* **git-commit-push-pr:** pre-resolve context to reduce bash calls ([#488](https://github.com/dragosdm/compound-engineering-plugin/issues/488)) ([bbd4f6d](https://github.com/dragosdm/compound-engineering-plugin/commit/bbd4f6de56963fc3cdb3131773d7e29d523ce549))
+* **git-commit-push-pr:** precompute shield badge version via skill preprocessing ([#464](https://github.com/dragosdm/compound-engineering-plugin/issues/464)) ([6ca7aef](https://github.com/dragosdm/compound-engineering-plugin/commit/6ca7aef7f33ebdf29f579cb4342c209d2bd40aad))
+* **product-lens-reviewer:** domain-agnostic activation criteria and strategic consequences ([#481](https://github.com/dragosdm/compound-engineering-plugin/issues/481)) ([804d78f](https://github.com/dragosdm/compound-engineering-plugin/commit/804d78fc8463be8101719b263d1f5ef0480755a6))
+* **resolve-pr-feedback:** add cross-invocation cluster analysis ([#480](https://github.com/dragosdm/compound-engineering-plugin/issues/480)) ([7b8265b](https://github.com/dragosdm/compound-engineering-plugin/commit/7b8265bd81410b28a4160657a7c6ac0d7f1f1cb2))
+* **resolve-pr-feedback:** add gated feedback clustering to detect systemic issues ([#441](https://github.com/dragosdm/compound-engineering-plugin/issues/441)) ([a301a08](https://github.com/dragosdm/compound-engineering-plugin/commit/a301a082057494e122294f4e7c1c3f5f87103f35))
+* **review:** make review mandatory across pipeline skills ([#433](https://github.com/dragosdm/compound-engineering-plugin/issues/433)) ([9caaf07](https://github.com/dragosdm/compound-engineering-plugin/commit/9caaf071d9b74fd938567542167768f6cdb7a56f))
+* **skills:** clean up argument-hint across ce:* skills ([#436](https://github.com/dragosdm/compound-engineering-plugin/issues/436)) ([d2b24e0](https://github.com/dragosdm/compound-engineering-plugin/commit/d2b24e07f6f2fde11cac65258cb1e76927238b5d))
+* **test-xcode:** add triggering context to skill description ([#466](https://github.com/dragosdm/compound-engineering-plugin/issues/466)) ([87facd0](https://github.com/dragosdm/compound-engineering-plugin/commit/87facd05dac94603780d75acb9da381dd7c61f1b))
+* **testing:** close the testing gap in ce:work, ce:plan, and testing-reviewer ([#438](https://github.com/dragosdm/compound-engineering-plugin/issues/438)) ([35678b8](https://github.com/dragosdm/compound-engineering-plugin/commit/35678b8add6a603cf9939564bcd2df6b83338c52))
+
+
+### Bug Fixes
+
+* **ce-brainstorm:** distinguish verification from technical design in Phase 1.1 ([#465](https://github.com/dragosdm/compound-engineering-plugin/issues/465)) ([8ec31d7](https://github.com/dragosdm/compound-engineering-plugin/commit/8ec31d703fc9ed19bf6377da0a9a29da935b719d))
+* **ce-compound:** require question tool for "What's next?" prompt ([#460](https://github.com/dragosdm/compound-engineering-plugin/issues/460)) ([9bf3b07](https://github.com/dragosdm/compound-engineering-plugin/commit/9bf3b07185a4aeb6490116edec48599b736dc86f))
+* **ce-plan, ce-brainstorm:** enforce repo-relative paths in generated documents ([#473](https://github.com/dragosdm/compound-engineering-plugin/issues/473)) ([33a8d9d](https://github.com/dragosdm/compound-engineering-plugin/commit/33a8d9dc118a53a35cd15e0e6e44b3592f58ac4f))
+* **ce-plan:** reinforce mandatory document-review after auto deepening ([#450](https://github.com/dragosdm/compound-engineering-plugin/issues/450)) ([42fa8c3](https://github.com/dragosdm/compound-engineering-plugin/commit/42fa8c3e084db464ee0e04673f7c38cd422b32d6))
+* **ce-plan:** route confidence-gate pass to document-review ([#462](https://github.com/dragosdm/compound-engineering-plugin/issues/462)) ([1962f54](https://github.com/dragosdm/compound-engineering-plugin/commit/1962f546b5e5288c7ce5d8658f942faf71651c81))
+* **ce-work:** make code review invocation mandatory by default ([#453](https://github.com/dragosdm/compound-engineering-plugin/issues/453)) ([7f3aba2](https://github.com/dragosdm/compound-engineering-plugin/commit/7f3aba29e84c3166de75438d554455a71f4f3c22))
+* **document-review:** show contextual next-step in Phase 5 menu ([#459](https://github.com/dragosdm/compound-engineering-plugin/issues/459)) ([2b7283d](https://github.com/dragosdm/compound-engineering-plugin/commit/2b7283da7b48dc073670c5f4d116e58255f0ffcb))
+* **git-commit-push-pr:** filter fix-up commits from PR descriptions ([#484](https://github.com/dragosdm/compound-engineering-plugin/issues/484)) ([428f4fd](https://github.com/dragosdm/compound-engineering-plugin/commit/428f4fd548926b104a0ee617b02f9ce8b8e8d5e5))
+* **git-commit-push-pr:** quiet expected no-pr gh exit ([#439](https://github.com/dragosdm/compound-engineering-plugin/issues/439)) ([1f49948](https://github.com/dragosdm/compound-engineering-plugin/commit/1f499482bc65456fa7dd0f73fb7f2fa58a4c5910))
+* **mcp:** remove bundled context7 MCP server ([#486](https://github.com/dragosdm/compound-engineering-plugin/issues/486)) ([afdd9d4](https://github.com/dragosdm/compound-engineering-plugin/commit/afdd9d44651f834b1eed0b20e401ffbef5c8cd41))
+* **release:** align cli and compound-engineering versions with linked-versions plugin ([0bd29c7](https://github.com/dragosdm/compound-engineering-plugin/commit/0bd29c7f2e930fc1198cc7ae833394bfabd47c40))
+* **resolve-pr-feedback:** add actionability filter and lower cluster gate to 3+ ([#461](https://github.com/dragosdm/compound-engineering-plugin/issues/461)) ([2619ad9](https://github.com/dragosdm/compound-engineering-plugin/commit/2619ad9f58e6c45968ec10d7f8aa7849fe43eb25))
+* **review:** harden ce-review base resolution ([#452](https://github.com/dragosdm/compound-engineering-plugin/issues/452)) ([638b38a](https://github.com/dragosdm/compound-engineering-plugin/commit/638b38abd267d415ad2d6b72eba3dfe12beefad9))
+
 ## [2.61.0](https://github.com/EveryInc/compound-engineering-plugin/compare/compound-engineering-v2.60.0...compound-engineering-v2.61.0) (2026-04-01)
 
 
